@@ -591,7 +591,7 @@ render_group_editor_lock()
 if st.session_state.group_editor_unlocked:
     render_stock_group_editor()
 else:
-    st.sidebar.info("目前為唯讀模式：輸入 PIN（1219）後才能修改股票分組")
+    st.sidebar.info("目前為唯讀模式：輸入 PIN 後才能修改股票分組")
 
 # 台灣時間
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
