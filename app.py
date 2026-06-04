@@ -2,7 +2,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import time
+
 
 # ===== 刷新秒數 =====
 REFRESH_SEC = 30
@@ -244,8 +247,10 @@ def format_gap(val):
 
 # ===== Streamlit UI =====
 st.set_page_config(layout="wide")
-st.title("📊 股票監控面板 (yfinance)")
-st.caption(f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.title("📊 股票監控面板 -告訴我你會買日月光")
+tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
+st.caption(f"更新時間：{tw_now.strftime('%Y-%m-%d %H:%M:%S')}")
+
 
 # ===== 顯示各群組 =====
 for group_name, stocks in stock_groups.items():
