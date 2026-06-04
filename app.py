@@ -272,20 +272,6 @@ def validate_and_normalize_group_json(data):
     return validated
 
 
-def sync_group_editor_fields():
-    """
-    當切換分類時，同步更新編輯欄位：
-    - rename_group_input
-    - symbols_text_area
-    """
-    groups = st.session_state.stock_groups
-    selected_group = st.session_state.get("selected_group_editor")
-
-    if selected_group in groups:
-        st.session_state["rename_group_input"] = selected_group
-        st.session_state["symbols_text_area"] = "\n".join(groups[selected_group])
-
-
 def render_group_editor_lock():
     """
     Sidebar 的 PIN 驗證鎖
@@ -329,21 +315,6 @@ def render_stock_group_editor():
         groups = st.session_state.stock_groups
         group_names = list(groups.keys())
 
-    # ===== 初始化選擇分類 =====
-    if (
-        "selected_group_editor" not in st.session_state
-        or st.session_state["selected_group_editor"] not in group_names
-    ):
-        st.session_state["selected_group_editor"] = group_names[0]
-
-    # ===== 初始化欄位內容 =====
-    if "rename_group_input" not in st.session_state:
-        st.session_state["rename_group_input"] = st.session_state["selected_group_editor"]
-
-    if "symbols_text_area" not in st.session_state:
-        selected = st.session_state["selected_group_editor"]
-        st.session_state["symbols_text_area"] = "\n".join(groups[selected])
-
     # ===== 新增分類 =====
     with st.sidebar.expander("➕ 新增分類", expanded=False):
         new_group_name = st.text_input("分類名稱", key="new_group_name_input")
@@ -357,30 +328,24 @@ def render_stock_group_editor():
                 groups[name] = []
                 st.session_state.stock_groups = groups
                 save_stock_groups(groups)
-
-                # 新增後切到新分類
-                st.session_state["selected_group_editor"] = name
-                st.session_state["rename_group_input"] = name
-                st.session_state["symbols_text_area"] = ""
-
                 st.rerun()
 
     # ===== 編輯既有分類 =====
     with st.sidebar.expander("📝 編輯分類", expanded=True):
-        st.selectbox(
-            "選擇分類",
-            group_names,
-            key="selected_group_editor",
-            on_change=sync_group_editor_fields
-        )
+        selected_group = st.selectbox("選擇分類", group_names, key="selected_group_editor")
 
-        st.text_input(
+        current_symbols = groups[selected_group]
+        current_text = "\n".join(current_symbols)
+
+        new_group_name = st.text_input(
             "分類名稱（可修改）",
+            value=selected_group,
             key="rename_group_input"
         )
 
-        st.text_area(
+        symbols_text = st.text_area(
             "股票清單（每行一檔，或逗號分隔）",
+            value=current_text,
             height=220,
             key="symbols_text_area"
         )
@@ -389,10 +354,7 @@ def render_stock_group_editor():
 
         with col1:
             if st.button("💾 儲存分類", key="save_group_btn", use_container_width=True):
-                selected_group = st.session_state["selected_group_editor"]
-                new_name = st.session_state["rename_group_input"].strip()
-                symbols_text = st.session_state["symbols_text_area"]
-
+                new_name = new_group_name.strip()
                 if not new_name:
                     st.sidebar.warning("分類名稱不可為空")
                 else:
@@ -407,31 +369,16 @@ def render_stock_group_editor():
 
                     st.session_state.stock_groups = updated
                     save_stock_groups(updated)
-
-                    # 儲存後同步欄位
-                    st.session_state["selected_group_editor"] = new_name
-                    st.session_state["rename_group_input"] = new_name
-                    st.session_state["symbols_text_area"] = "\n".join(new_symbols)
-
                     st.rerun()
 
         with col2:
             if st.button("🗑️ 刪除分類", key="delete_group_btn", use_container_width=True):
-                selected_group = st.session_state["selected_group_editor"]
-
                 if len(groups) <= 1:
                     st.sidebar.warning("至少保留一個分類")
                 else:
                     groups.pop(selected_group, None)
                     st.session_state.stock_groups = groups
                     save_stock_groups(groups)
-
-                    remaining_groups = list(groups.keys())
-                    next_group = remaining_groups[0]
-                    st.session_state["selected_group_editor"] = next_group
-                    st.session_state["rename_group_input"] = next_group
-                    st.session_state["symbols_text_area"] = "\n".join(groups[next_group])
-
                     st.rerun()
 
     # ===== 備份 / 匯出 / 匯入 JSON =====
@@ -473,17 +420,11 @@ def render_stock_group_editor():
                     data = json.loads(raw.decode("utf-8"))
                     validated = validate_and_normalize_group_json(data)
 
-                    # 匯入前先自動備份
+                    # 匯入前先自動備份一份目前設定
                     save_backup_snapshot(st.session_state.stock_groups)
 
                     st.session_state.stock_groups = validated
                     save_stock_groups(validated)
-
-                    # 匯入後同步到第一個分類
-                    first_group = list(validated.keys())[0]
-                    st.session_state["selected_group_editor"] = first_group
-                    st.session_state["rename_group_input"] = first_group
-                    st.session_state["symbols_text_area"] = "\n".join(validated[first_group])
 
                     st.sidebar.success("JSON 匯入成功，已覆蓋目前股票分組")
                     st.rerun()
@@ -502,6 +443,7 @@ def render_stock_group_editor():
     # ===== 還原預設 =====
     with st.sidebar.expander("♻️ 重設", expanded=False):
         if st.button("還原預設分組", key="reset_groups_btn", use_container_width=True):
+            # 還原前先自動備份
             try:
                 save_backup_snapshot(st.session_state.stock_groups)
             except Exception:
@@ -509,13 +451,6 @@ def render_stock_group_editor():
 
             st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
             save_stock_groups(st.session_state.stock_groups)
-
-            # 還原後同步到第一個分類
-            first_group = list(st.session_state.stock_groups.keys())[0]
-            st.session_state["selected_group_editor"] = first_group
-            st.session_state["rename_group_input"] = first_group
-            st.session_state["symbols_text_area"] = "\n".join(st.session_state.stock_groups[first_group])
-
             st.rerun()
 
     # ===== 分組預覽 =====
@@ -561,6 +496,7 @@ def normalize_ohlc(df):
     for target_col in required_cols:
         matched_series = None
         for col in df.columns:
+            # 可能是 ('Close', '2330.TW') 或 ('2330.TW', 'Close')
             if isinstance(col, tuple) and target_col in col:
                 matched_series = df[col]
                 break
@@ -603,6 +539,7 @@ def compute_indicators(df, price):
     low = df["Low"]
     high = df["High"]
 
+    # 確保是數值型態
     close = pd.to_numeric(close, errors="coerce")
     low = pd.to_numeric(low, errors="coerce")
     high = pd.to_numeric(high, errors="coerce")
@@ -744,6 +681,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
+        # 顏色邏輯保留
         if hit_ratio >= 60:
             bg_color = "#fff1f0"
             border_color = "#ff7875"
@@ -831,9 +769,11 @@ for group_name, stocks in st.session_state.stock_groups.items():
             price = get_last_price(symbol, df)
             data = compute_indicators(df, price)
 
+            # ===== 儀表板統計：漲幅達標比例 =====
             if data["pct"] >= rise_threshold:
                 hit_count += 1
 
+            # ===== 原本漲跌統計 =====
             if data["pct"] > 0:
                 up_count += 1
             elif data["pct"] < 0:
@@ -872,6 +812,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
     df_table = pd.DataFrame(rows)
     display_df = df_table.copy()
 
+    # 顯示前格式化（只改顯示，不改計算邏輯）
     if not display_df.empty:
         display_df["漲跌%"] = display_df["漲跌%"].apply(format_color)
         display_df["K值"] = display_df["K值"].apply(format_k)
@@ -901,6 +842,7 @@ st.divider()
 for group_name, info in group_tables.items():
     anchor_id = make_anchor_id(group_name)
 
+    # 這個 anchor 讓儀表板可以跳過來
     st.markdown(
         f'<div id="{anchor_id}" style="scroll-margin-top: 80px;"></div>',
         unsafe_allow_html=True
