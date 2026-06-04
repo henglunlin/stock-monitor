@@ -82,6 +82,7 @@ GROUP_EDIT_PIN = "1219"
 
 # ===== 股票分組設定檔 =====
 GROUPS_FILE = "stock_groups.json"
+BACKUP_DIR = "backups"
 
 # ===== 預設股票分組 =====
 DEFAULT_STOCK_GROUPS = {
@@ -137,6 +138,47 @@ def save_stock_groups(groups):
     """
     with open(GROUPS_FILE, "w", encoding="utf-8") as f:
         json.dump(groups, f, ensure_ascii=False, indent=2)
+
+
+def ensure_backup_dir():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+
+
+def create_backup_filename():
+    tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
+    return f"stock_groups_backup_{tw_now.strftime('%Y%m%d_%H%M%S')}.json"
+
+
+def save_backup_snapshot(groups):
+    """
+    建立本地備份檔
+    """
+    ensure_backup_dir()
+    filename = create_backup_filename()
+    file_path = os.path.join(BACKUP_DIR, filename)
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(groups, f, ensure_ascii=False, indent=2)
+
+    return file_path
+
+
+def list_backup_files():
+    """
+    列出最近備份檔（新到舊）
+    """
+    if not os.path.exists(BACKUP_DIR):
+        return []
+
+    files = []
+    for name in os.listdir(BACKUP_DIR):
+        if name.lower().endswith(".json"):
+            full_path = os.path.join(BACKUP_DIR, name)
+            if os.path.isfile(full_path):
+                files.append((name, os.path.getmtime(full_path)))
+
+    files.sort(key=lambda x: x[1], reverse=True)
+    return [name for name, _ in files]
 
 
 # ===== 初始化狀態 =====
@@ -195,6 +237,39 @@ def normalize_symbols_from_text(text: str):
             result.append(s)
 
     return result
+
+
+def validate_and_normalize_group_json(data):
+    """
+    驗證匯入 JSON 格式，並正規化成：
+    {
+        "分類名稱": ["2330.TW", "2317.TW", ...]
+    }
+    """
+    if not isinstance(data, dict) or not data:
+        raise ValueError("JSON 格式錯誤：最外層必須是非空物件（dict）")
+
+    validated = {}
+
+    for group_name, symbols in data.items():
+        group_name = str(group_name).strip()
+        if not group_name:
+            raise ValueError("JSON 格式錯誤：分類名稱不可為空")
+
+        if isinstance(symbols, list):
+            raw_text = "\n".join(str(x) for x in symbols)
+        elif isinstance(symbols, str):
+            raw_text = symbols
+        else:
+            raise ValueError(f"JSON 格式錯誤：分類「{group_name}」的股票清單必須是 list 或 string")
+
+        normalized_symbols = normalize_symbols_from_text(raw_text)
+        validated[group_name] = normalized_symbols
+
+    if not validated:
+        raise ValueError("JSON 內容為空")
+
+    return validated
 
 
 def render_group_editor_lock():
@@ -306,9 +381,74 @@ def render_stock_group_editor():
                     save_stock_groups(groups)
                     st.rerun()
 
+    # ===== 備份 / 匯出 / 匯入 JSON =====
+    with st.sidebar.expander("📦 備份 / 匯出 / 匯入 JSON", expanded=False):
+        export_json_str = json.dumps(
+            st.session_state.stock_groups,
+            ensure_ascii=False,
+            indent=2
+        )
+
+        st.download_button(
+            label="⬇️ 匯出目前分組 JSON",
+            data=export_json_str,
+            file_name="stock_groups.json",
+            mime="application/json",
+            key="download_groups_json_btn",
+            use_container_width=True
+        )
+
+        if st.button("🗂️ 建立本地備份", key="create_local_backup_btn", use_container_width=True):
+            try:
+                backup_file = save_backup_snapshot(st.session_state.stock_groups)
+                st.sidebar.success(f"已建立備份：{os.path.basename(backup_file)}")
+            except Exception as e:
+                st.sidebar.error(f"建立備份失敗：{e}")
+
+        uploaded_file = st.file_uploader(
+            "上傳股票分組 JSON",
+            type=["json"],
+            key="upload_groups_json_file"
+        )
+
+        if uploaded_file is not None:
+            st.caption("上傳後按下「匯入並覆蓋目前分組」才會生效")
+
+            if st.button("📥 匯入並覆蓋目前分組", key="import_groups_json_btn", use_container_width=True):
+                try:
+                    raw = uploaded_file.read()
+                    data = json.loads(raw.decode("utf-8"))
+                    validated = validate_and_normalize_group_json(data)
+
+                    # 匯入前先自動備份一份目前設定
+                    save_backup_snapshot(st.session_state.stock_groups)
+
+                    st.session_state.stock_groups = validated
+                    save_stock_groups(validated)
+
+                    st.sidebar.success("JSON 匯入成功，已覆蓋目前股票分組")
+                    st.rerun()
+
+                except Exception as e:
+                    st.sidebar.error(f"JSON 匯入失敗：{e}")
+
+        backups = list_backup_files()
+        if backups:
+            st.markdown("**最近備份檔**")
+            for name in backups[:5]:
+                st.caption(name)
+        else:
+            st.caption("目前沒有本地備份檔")
+
     # ===== 還原預設 =====
     with st.sidebar.expander("♻️ 重設", expanded=False):
         if st.button("還原預設分組", key="reset_groups_btn", use_container_width=True):
+            # 還原前先自動備份
+            try:
+                save_backup_snapshot(st.session_state.stock_groups)
+            except Exception:
+                pass
+
             st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
             save_stock_groups(st.session_state.stock_groups)
             st.rerun()
@@ -591,7 +731,7 @@ render_group_editor_lock()
 if st.session_state.group_editor_unlocked:
     render_stock_group_editor()
 else:
-    st.sidebar.info("目前為唯讀模式：輸入 PIN 後才能修改股票分組")
+    st.sidebar.info("目前為唯讀模式：輸入 PIN（1219）後才能修改股票分組")
 
 # 台灣時間
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
