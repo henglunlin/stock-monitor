@@ -77,6 +77,9 @@ REFRESH_SEC = 30
 # ===== 是否啟用跳空判斷 =====
 ENABLE_GAP_SIGNAL = True
 
+# ===== 分組編輯 PIN =====
+GROUP_EDIT_PIN = "1219"
+
 # ===== 股票分組設定檔 =====
 GROUPS_FILE = "stock_groups.json"
 
@@ -136,9 +139,12 @@ def save_stock_groups(groups):
         json.dump(groups, f, ensure_ascii=False, indent=2)
 
 
-# ===== 初始化可編輯股票分組 =====
+# ===== 初始化狀態 =====
 if "stock_groups" not in st.session_state:
     st.session_state.stock_groups = load_stock_groups()
+
+if "group_editor_unlocked" not in st.session_state:
+    st.session_state.group_editor_unlocked = False
 
 
 # ===== 工具函式 =====
@@ -189,6 +195,35 @@ def normalize_symbols_from_text(text: str):
             result.append(s)
 
     return result
+
+
+def render_group_editor_lock():
+    """
+    Sidebar 的 PIN 驗證鎖
+    驗證成功後才能編輯股票分組
+    """
+    st.sidebar.markdown("## 🔐 分組編輯鎖")
+
+    if st.session_state.group_editor_unlocked:
+        st.sidebar.success("已解鎖，可編輯股票分組")
+        if st.sidebar.button("鎖定編輯", key="lock_group_editor_btn", use_container_width=True):
+            st.session_state.group_editor_unlocked = False
+            st.rerun()
+        return
+
+    pin_input = st.sidebar.text_input(
+        "請輸入 PIN 碼以編輯分組",
+        type="password",
+        key="group_edit_pin_input"
+    )
+
+    if st.sidebar.button("解鎖編輯", key="unlock_group_editor_btn", use_container_width=True):
+        if pin_input == GROUP_EDIT_PIN:
+            st.session_state.group_editor_unlocked = True
+            st.sidebar.success("PIN 正確，已解鎖")
+            st.rerun()
+        else:
+            st.sidebar.error("PIN 錯誤")
 
 
 def render_stock_group_editor():
@@ -548,7 +583,15 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
 
 # ===== 主畫面 =====
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
-render_stock_group_editor()
+
+# ===== 分組編輯鎖 =====
+render_group_editor_lock()
+
+# 只有 PIN 驗證成功才顯示可編輯分組
+if st.session_state.group_editor_unlocked:
+    render_stock_group_editor()
+else:
+    st.sidebar.info("目前為唯讀模式：輸入 PIN（1219）後才能修改股票分組")
 
 # 台灣時間
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
