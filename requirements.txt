@@ -3,3 +3,4 @@ yfinance
 pandas
 requests
 urllib3
+streamlit-autorefresh
