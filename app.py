@@ -3,9 +3,10 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from html import escape
 import time
 
-# ===== Streamlit UI 基本設定（要放前面）=====
+# ===== Streamlit UI 基本設定（一定要放最前面）=====
 st.set_page_config(layout="wide")
 
 # ===== 手機固定 4 張卡片 + 可左右滑動 CSS =====
@@ -15,19 +16,19 @@ st.markdown("""
 .dashboard-scroll {
     overflow-x: auto;
     overflow-y: hidden;
-    padding-bottom: 8px;
     width: 100%;
+    padding-bottom: 8px;
 }
 
-/* 固定 4 欄，手機也不改直排 */
+/* 固定 4 欄 */
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(220px, 1fr));
     gap: 12px;
-    min-width: 940px;   /* 保證至少能容納 4 張 */
+    min-width: 940px;   /* 確保至少能容納 4 張 */
 }
 
-/* 卡片樣式 */
+/* 卡片 */
 .dashboard-card {
     border-radius: 12px;
     padding: 14px 16px;
@@ -302,15 +303,16 @@ def format_gap(val):
     return "-"
 
 
-# ===== 儀表板卡片（新版：固定一排 4 個，手機可左右滑）=====
+# ===== 儀表板卡片（修正版：固定 4 張 + 手機可左右滑）=====
 def render_summary_dashboard(group_up_summary, rise_threshold):
     st.markdown("### 📌 各分類漲幅達標儀表板")
     st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
 
-    cards_html = '<div class="dashboard-scroll"><div class="dashboard-grid">'
+    html_parts = []
+    html_parts.append('<div class="dashboard-scroll"><div class="dashboard-grid">')
 
     for item in group_up_summary:
-        group_name = item["分類"]
+        group_name = escape(str(item["分類"]))
         hit_count = item["達標數"]
         total_count = item["總數"]
         up_count = item["上漲數"]
@@ -334,30 +336,27 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             border_color = "#95de64"
             accent_color = "#389e0d"
 
-        cards_html += f"""
-        <div class="dashboard-card" style="
-            background-color: {bg_color};
-            border: 1px solid {border_color};
-        ">
-            <div class="dashboard-title">{group_name}</div>
-            <div class="dashboard-main" style="color: {accent_color};">
-                {hit_count} / {total_count}
-            </div>
-            <div class="dashboard-sub">
-                漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%
-            </div>
-            <div class="dashboard-detail">
-                🎯 達標：<b>{hit_count}</b><br>
-                🔴 一般上漲：<b>{up_count}</b><br>
-                🟢 下跌：<b>{down_count}</b><br>
-                ⚪ 平盤：<b>{flat_count}</b><br>
-                ⚠️ 錯誤：<b>{error_count}</b>
-            </div>
-        </div>
-        """
+        card_html = (
+            f'<div class="dashboard-card" '
+            f'style="background-color:{bg_color}; border:1px solid {border_color};">'
+            f'<div class="dashboard-title">{group_name}</div>'
+            f'<div class="dashboard-main" style="color:{accent_color};">{hit_count} / {total_count}</div>'
+            f'<div class="dashboard-sub">漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%</div>'
+            f'<div class="dashboard-detail">'
+            f'🎯 達標：<b>{hit_count}</b><br>'
+            f'🔴 一般上漲：<b>{up_count}</b><br>'
+            f'🟢 下跌：<b>{down_count}</b><br>'
+            f'⚪ 平盤：<b>{flat_count}</b><br>'
+            f'⚠️ 錯誤：<b>{error_count}</b>'
+            f'</div>'
+            f'</div>'
+        )
 
-    cards_html += "</div></div>"
+        html_parts.append(card_html)
 
+    html_parts.append("</div></div>")
+
+    cards_html = "".join(html_parts)
     st.markdown(cards_html, unsafe_allow_html=True)
 
 
