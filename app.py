@@ -243,8 +243,10 @@ def format_gap(val):
 
 
 # ===== 儀表板卡片 =====
-def render_summary_dashboard(group_up_summary):
-    st.markdown("### 📌 各分類上漲家數儀表板")
+def render_summary_dashboard(group_up_summary, rise_threshold):
+    st.markdown("### 📌 各分類漲幅達標儀表板")
+
+    st.caption(f"目前儀表板統計門檻：**漲幅 ≥ {rise_threshold}%**")
 
     cards_per_row = 4
     for i in range(0, len(group_up_summary), cards_per_row):
@@ -256,19 +258,20 @@ def render_summary_dashboard(group_up_summary):
                 if col_idx < len(row_items):
                     item = row_items[col_idx]
                     group_name = item["分類"]
-                    up_count = item["上漲數"]
+                    hit_count = item["達標數"]
                     total_count = item["總數"]
+                    up_count = item["上漲數"]
                     down_count = item["下跌數"]
                     flat_count = item["平盤數"]
                     error_count = item["錯誤數"]
 
-                    up_ratio = (up_count / total_count * 100) if total_count > 0 else 0
+                    hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
-                    if up_ratio >= 60:
+                    if hit_ratio >= 60:
                         bg_color = "#fff1f0"
                         border_color = "#ff7875"
                         accent_color = "#cf1322"
-                    elif up_ratio > 0:
+                    elif hit_ratio > 0:
                         bg_color = "#fff7e6"
                         border_color = "#ffa940"
                         accent_color = "#d46b08"
@@ -283,7 +286,7 @@ def render_summary_dashboard(group_up_summary):
                         border: 1px solid {border_color};
                         border-radius: 12px;
                         padding: 14px 16px;
-                        min-height: 150px;
+                        min-height: 175px;
                         box-shadow: 0 1px 4px rgba(0,0,0,0.08);
                         margin-bottom: 12px;
                     ">
@@ -291,13 +294,14 @@ def render_summary_dashboard(group_up_summary):
                             {group_name}
                         </div>
                         <div style="font-size: 28px; font-weight: 800; color: {accent_color}; margin-bottom: 6px;">
-                            {up_count} / {total_count}
+                            {hit_count} / {total_count}
                         </div>
                         <div style="font-size: 14px; color: #666; margin-bottom: 10px;">
-                            上漲比例：{up_ratio:.0f}%
+                            漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%
                         </div>
                         <div style="font-size: 14px; line-height: 1.7;">
-                            🔴 上漲：<b>{up_count}</b><br>
+                            🎯 達標：<b>{hit_count}</b><br>
+                            🔴 一般上漲：<b>{up_count}</b><br>
                             🟢 下跌：<b>{down_count}</b><br>
                             ⚪ 平盤：<b>{flat_count}</b><br>
                             ⚠️ 錯誤：<b>{error_count}</b>
@@ -317,13 +321,23 @@ st.title("📊 股票監控面板 - 告訴我你會買日月光")
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
 st.caption(f"更新時間：{tw_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
+# ===== 儀表板門檻設定（5%~9%）=====
+rise_threshold = st.slider(
+    "儀表板漲幅達標門檻 (%)",
+    min_value=5,
+    max_value=9,
+    value=5,
+    step=1
+)
+
 # ===== 先整理所有群組資料，方便做上方摘要 =====
 group_tables = {}
 group_up_summary = []
 
 for group_name, stocks in stock_groups.items():
     rows = []
-    up_count = 0
+    hit_count = 0      # 漲幅 >= 門檻
+    up_count = 0       # 一般上漲（>0）
     down_count = 0
     flat_count = 0
     error_count = 0
@@ -339,7 +353,11 @@ for group_name, stocks in stock_groups.items():
             price = get_last_price(symbol, df)
             data = compute_indicators(df, price)
 
-            # 統計本分類上漲 / 下跌 / 平盤
+            # ===== 儀表板統計改為：漲幅達標比例 =====
+            if data["pct"] >= rise_threshold:
+                hit_count += 1
+
+            # ===== 仍保留原本漲跌統計 =====
             if data["pct"] > 0:
                 up_count += 1
             elif data["pct"] < 0:
@@ -389,6 +407,7 @@ for group_name, stocks in stock_groups.items():
 
     group_up_summary.append({
         "分類": group_name,
+        "達標數": hit_count,
         "上漲數": up_count,
         "下跌數": down_count,
         "平盤數": flat_count,
@@ -397,7 +416,7 @@ for group_name, stocks in stock_groups.items():
     })
 
 # ===== 上方儀表板 =====
-render_summary_dashboard(group_up_summary)
+render_summary_dashboard(group_up_summary, rise_threshold)
 
 st.divider()
 
