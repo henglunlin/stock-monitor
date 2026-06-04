@@ -1,5 +1,5 @@
 import streamlit as st
-import yfinance as yf
+import requests
 import pandas as pd
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
@@ -13,32 +13,34 @@ stock_groups = {
 }
 
 # ===============================
-# 抓資料
+# 抓台股即時資料（TWSE）
 # ===============================
 def get_stock(stock_id):
     try:
-        hist = yf.download(f"{stock_id}.TW", period="1mo", progress=False)
+        url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stock_id}.tw&json=1&delay=0"
+        res = requests.get(url, timeout=5).json()
 
-        if hist.empty:
-            hist = yf.download(f"{stock_id}.TWO", period="1mo", progress=False)
-
-        if hist.empty or len(hist) < 2:
+        if not res.get("msgArray"):
             return None
 
-        price = float(hist["Close"].iloc[-1])
-        prev = float(hist["Close"].iloc[-2])
+        info = res["msgArray"][0]
+
+        price = float(info.get("z", info.get("y", 0)))
+        prev = float(info.get("y", price))
 
         diff = price - prev
         pct = diff / prev * 100
 
         return {
             "代號": stock_id,
+            "名稱": info.get("n", ""),
             "價格": round(price, 2),
             "漲跌%": round(pct, 2)
         }
 
     except:
         return None
+
 
 # ===============================
 # UI
@@ -47,7 +49,7 @@ st.set_page_config(layout="wide")
 st.title("📊 台股即時監控")
 st.caption(f"更新時間：{datetime.now().strftime('%H:%M:%S')}")
 
-# ✅ 自動刷新
+# ✅ 自動刷新（重要）
 st_autorefresh(interval=30000)
 
 # ===============================
@@ -60,13 +62,12 @@ for group, stocks in stock_groups.items():
 
     for sid in stocks:
         r = get_stock(sid)
-
         if r:
-            data.append(r)   # ✅ 這行很重要！！！
+            data.append(r)
 
     if data:
         df = pd.DataFrame(data)
 
         st.dataframe(df, use_container_width=True)
     else:
-        st.warning("抓不到資料")
+        st.warning("抓不到資料（可能非交易時段）")
