@@ -7,6 +7,9 @@ import time
 # ===== 刷新秒數 =====
 REFRESH_SEC = 30
 
+# ===== 是否啟用跳空判斷 =====
+ENABLE_GAP_SIGNAL = True
+
 # ===== 股票分組 =====
 stock_groups = {
     "權值股": [
@@ -185,6 +188,19 @@ def compute_indicators(df, price):
     else:
         kd_signal = "-"
 
+    # ===== 跳空判斷（新增，但不改原本邏輯）=====
+    gap_signal = "-"
+    today_low = low.iloc[-1]
+    yesterday_high = high.iloc[-2]
+
+    if (
+        ENABLE_GAP_SIGNAL
+        and pd.notna(today_low)
+        and pd.notna(yesterday_high)
+        and today_low > yesterday_high
+    ):
+        gap_signal = "跳空"
+
     return {
         "price": round(float(price), 2),
         "pct": round(float(change_pct), 2),
@@ -192,7 +208,8 @@ def compute_indicators(df, price):
         "ma_trend": ma_trend,
         "k": round(k_t, 1),
         "d": round(d_t, 1),
-        "kd_signal": kd_signal
+        "kd_signal": kd_signal,
+        "gap_signal": gap_signal
     }
 
 
@@ -217,6 +234,12 @@ def format_k(val):
         else:
             return f"🟢 {val:.1f}"
     return val
+
+
+def format_gap(val):
+    if val == "跳空":
+        return "🔴 跳空"
+    return "-"
 
 
 # ===== Streamlit UI =====
@@ -249,7 +272,8 @@ for group_name, stocks in stock_groups.items():
                 "MA排列": data["ma_trend"],
                 "K值": data["k"],
                 "D值": f"{data['d']:.1f}",
-                "KD訊號": data["kd_signal"]
+                "KD訊號": data["kd_signal"],
+                "跳空訊號": data["gap_signal"]
             })
 
         except Exception as e:
@@ -261,7 +285,8 @@ for group_name, stocks in stock_groups.items():
                 "MA排列": "-",
                 "K值": "-",
                 "D值": "-",
-                "KD訊號": str(e)
+                "KD訊號": "-",
+                "跳空訊號": str(e)
             })
 
     df_table = pd.DataFrame(rows)
@@ -270,6 +295,7 @@ for group_name, stocks in stock_groups.items():
     if not df_table.empty:
         df_table["漲跌%"] = df_table["漲跌%"].apply(format_color)
         df_table["K值"] = df_table["K值"].apply(format_k)
+        df_table["跳空訊號"] = df_table["跳空訊號"].apply(format_gap)
 
     st.dataframe(df_table, use_container_width=True)
 
