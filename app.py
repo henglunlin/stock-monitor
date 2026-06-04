@@ -65,21 +65,20 @@ def normalize_ohlc(df):
 
     required_cols = ["Open", "High", "Low", "Close", "Volume"]
 
-    # 如果本來就是單層欄位
+    # 單層欄位
     if not isinstance(df.columns, pd.MultiIndex):
         cols = [c for c in required_cols if c in df.columns]
         if "Close" in cols and "High" in cols and "Low" in cols:
             return df[cols].copy()
         return pd.DataFrame()
 
-    # 如果是 MultiIndex，嘗試從多層欄位找出需要的欄位
+    # MultiIndex 欄位
     normalized = pd.DataFrame(index=df.index)
 
     for target_col in required_cols:
         matched_series = None
-
         for col in df.columns:
-            # col 可能像 ('Close', '2330.TW') 或 ('2330.TW', 'Close')
+            # 可能是 ('Close', '2330.TW') 或 ('2330.TW', 'Close')
             if isinstance(col, tuple) and target_col in col:
                 matched_series = df[col]
                 break
@@ -214,7 +213,7 @@ def compute_indicators(df, price):
     }
 
 
-# ===== 顏色格式（不用 Styler） =====
+# ===== 顯示格式（不用 Styler） =====
 def format_color(val):
     if isinstance(val, (int, float)):
         if val > 0:
@@ -243,6 +242,73 @@ def format_gap(val):
     return "-"
 
 
+# ===== 儀表板卡片 =====
+def render_summary_dashboard(group_up_summary):
+    st.markdown("### 📌 各分類上漲家數儀表板")
+
+    cards_per_row = 4
+    for i in range(0, len(group_up_summary), cards_per_row):
+        row_items = group_up_summary[i:i + cards_per_row]
+        cols = st.columns(cards_per_row)
+
+        for col_idx in range(cards_per_row):
+            with cols[col_idx]:
+                if col_idx < len(row_items):
+                    item = row_items[col_idx]
+                    group_name = item["分類"]
+                    up_count = item["上漲數"]
+                    total_count = item["總數"]
+                    down_count = item["下跌數"]
+                    flat_count = item["平盤數"]
+                    error_count = item["錯誤數"]
+
+                    up_ratio = (up_count / total_count * 100) if total_count > 0 else 0
+
+                    if up_ratio >= 60:
+                        bg_color = "#fff1f0"
+                        border_color = "#ff7875"
+                        accent_color = "#cf1322"
+                    elif up_ratio > 0:
+                        bg_color = "#fff7e6"
+                        border_color = "#ffa940"
+                        accent_color = "#d46b08"
+                    else:
+                        bg_color = "#f6ffed"
+                        border_color = "#95de64"
+                        accent_color = "#389e0d"
+
+                    card_html = f"""
+                    <div style="
+                        background-color: {bg_color};
+                        border: 1px solid {border_color};
+                        border-radius: 12px;
+                        padding: 14px 16px;
+                        min-height: 150px;
+                        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+                        margin-bottom: 12px;
+                    ">
+                        <div style="font-size: 18px; font-weight: 700; margin-bottom: 10px;">
+                            {group_name}
+                        </div>
+                        <div style="font-size: 28px; font-weight: 800; color: {accent_color}; margin-bottom: 6px;">
+                            {up_count} / {total_count}
+                        </div>
+                        <div style="font-size: 14px; color: #666; margin-bottom: 10px;">
+                            上漲比例：{up_ratio:.0f}%
+                        </div>
+                        <div style="font-size: 14px; line-height: 1.7;">
+                            🔴 上漲：<b>{up_count}</b><br>
+                            🟢 下跌：<b>{down_count}</b><br>
+                            ⚪ 平盤：<b>{flat_count}</b><br>
+                            ⚠️ 錯誤：<b>{error_count}</b>
+                        </div>
+                    </div>
+                    """
+                    st.markdown(card_html, unsafe_allow_html=True)
+                else:
+                    st.empty()
+
+
 # ===== Streamlit UI =====
 st.set_page_config(layout="wide")
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
@@ -258,6 +324,9 @@ group_up_summary = []
 for group_name, stocks in stock_groups.items():
     rows = []
     up_count = 0
+    down_count = 0
+    flat_count = 0
+    error_count = 0
 
     for symbol in stocks:
         try:
@@ -270,9 +339,13 @@ for group_name, stocks in stock_groups.items():
             price = get_last_price(symbol, df)
             data = compute_indicators(df, price)
 
-            # 統計本分類上漲檔數
+            # 統計本分類上漲 / 下跌 / 平盤
             if data["pct"] > 0:
                 up_count += 1
+            elif data["pct"] < 0:
+                down_count += 1
+            else:
+                flat_count += 1
 
             rows.append({
                 "代碼": symbol,
@@ -287,6 +360,7 @@ for group_name, stocks in stock_groups.items():
             })
 
         except Exception as e:
+            error_count += 1
             rows.append({
                 "代碼": symbol,
                 "價格": "錯誤",
@@ -316,46 +390,16 @@ for group_name, stocks in stock_groups.items():
     group_up_summary.append({
         "分類": group_name,
         "上漲數": up_count,
+        "下跌數": down_count,
+        "平盤數": flat_count,
+        "錯誤數": error_count,
         "總數": len(stocks)
     })
 
+# ===== 上方儀表板 =====
+render_summary_dashboard(group_up_summary)
 
-# ===== 紅框區：顯示各分類上漲檔數 =====
-
-import textwrap
-
-summary_html = """
-<div style="
-    border: 2px solid #ff4b4b;
-    border-radius: 6px;
-    padding: 10px 14px;
-    margin: 6px 0 16px 0;
-    background-color: rgba(255, 75, 75, 0.03);
-">
-    <div style="
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px 24px;
-        font-size: 16px;
-        line-height: 1.8;
-    ">
-"""
-
-for item in group_up_summary:
-    up = item["上漲數"]
-    total = item["總數"]
-
-    up_text_color = "#d62728" if up > 0 else "#666666"
-
-    summary_html += f"""
-<div style="white-space: nowrap;">
-    <span style="font-weight: 700;">{item['分類']}</span>
-    ：
-    <span style="color: {up_text_color}; font-weight: 700;">{up}</span>
-    / {total} 上漲
-</div>
-
-
+st.divider()
 
 # ===== 顯示各群組表格 =====
 for group_name, info in group_tables.items():
