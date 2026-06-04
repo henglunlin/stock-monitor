@@ -515,7 +515,7 @@ for group_name, info in group_tables.items():
             "代碼": st.column_config.LinkColumn(
                 "代碼",
                 help="點擊前往 Yahoo Finance",
-                display_text=r"https://finance\.yahoo\.com/quote/(.*)"
+                display_text=r"https://tw.stock.yahoo.com/quote/(.*)"
             )
         }
     )
