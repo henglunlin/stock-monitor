@@ -1,4 +1,7 @@
 import re
+import os
+import json
+import copy
 import time
 from html import escape
 from datetime import datetime
@@ -74,8 +77,11 @@ REFRESH_SEC = 30
 # ===== 是否啟用跳空判斷 =====
 ENABLE_GAP_SIGNAL = True
 
-# ===== 股票分組 =====
-stock_groups = {
+# ===== 股票分組設定檔 =====
+GROUPS_FILE = "stock_groups.json"
+
+# ===== 預設股票分組 =====
+DEFAULT_STOCK_GROUPS = {
     "權值股": [
         "2330.TW", "00981A.TW", "2449.TW", "2317.TW", "3711.TW",
         "6488.TWO", "2327.TW", "6176.TW", "2303.TW", "5347.TWO",
@@ -105,6 +111,36 @@ stock_groups = {
 }
 
 
+# ===== 分組讀寫 =====
+def load_stock_groups():
+    """
+    優先讀取本地 JSON，若失敗則載入預設值
+    """
+    if os.path.exists(GROUPS_FILE):
+        try:
+            with open(GROUPS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and data:
+                return data
+        except Exception:
+            pass
+
+    return copy.deepcopy(DEFAULT_STOCK_GROUPS)
+
+
+def save_stock_groups(groups):
+    """
+    將分組儲存到本地 JSON
+    """
+    with open(GROUPS_FILE, "w", encoding="utf-8") as f:
+        json.dump(groups, f, ensure_ascii=False, indent=2)
+
+
+# ===== 初始化可編輯股票分組 =====
+if "stock_groups" not in st.session_state:
+    st.session_state.stock_groups = load_stock_groups()
+
+
 # ===== 工具函式 =====
 def make_anchor_id(group_name: str) -> str:
     """
@@ -120,6 +156,133 @@ def yahoo_quote_url(symbol: str) -> str:
     例如 2330.TW -> https://tw.stock.yahoo.com/quote/2330.TW
     """
     return f"https://tw.stock.yahoo.com/quote/{symbol}"
+
+
+def normalize_symbols_from_text(text: str):
+    """
+    將文字區輸入轉成股票代碼清單
+    支援：
+    - 一行一檔
+    - 半形逗號
+    - 全形逗號
+    """
+    if not text:
+        return []
+
+    text = text.replace("，", ",")
+    lines = []
+
+    for raw_line in text.splitlines():
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+
+        parts = [p.strip().upper() for p in raw_line.split(",") if p.strip()]
+        lines.extend(parts)
+
+    # 去重但保留順序
+    seen = set()
+    result = []
+    for s in lines:
+        if s not in seen:
+            seen.add(s)
+            result.append(s)
+
+    return result
+
+
+def render_stock_group_editor():
+    """
+    Sidebar 的股票分組編輯介面
+    """
+    st.sidebar.markdown("## 🛠️ 股票分組編輯")
+
+    groups = st.session_state.stock_groups
+    group_names = list(groups.keys())
+
+    if not group_names:
+        st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
+        groups = st.session_state.stock_groups
+        group_names = list(groups.keys())
+
+    # ===== 新增分類 =====
+    with st.sidebar.expander("➕ 新增分類", expanded=False):
+        new_group_name = st.text_input("分類名稱", key="new_group_name_input")
+        if st.button("新增分類", key="add_group_btn", use_container_width=True):
+            name = new_group_name.strip()
+            if not name:
+                st.sidebar.warning("請輸入分類名稱")
+            elif name in groups:
+                st.sidebar.warning("分類名稱已存在")
+            else:
+                groups[name] = []
+                st.session_state.stock_groups = groups
+                save_stock_groups(groups)
+                st.rerun()
+
+    # ===== 編輯既有分類 =====
+    with st.sidebar.expander("📝 編輯分類", expanded=True):
+        selected_group = st.selectbox("選擇分類", group_names, key="selected_group_editor")
+
+        current_symbols = groups[selected_group]
+        current_text = "\n".join(current_symbols)
+
+        new_group_name = st.text_input(
+            "分類名稱（可修改）",
+            value=selected_group,
+            key="rename_group_input"
+        )
+
+        symbols_text = st.text_area(
+            "股票清單（每行一檔，或逗號分隔）",
+            value=current_text,
+            height=220,
+            key="symbols_text_area"
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("💾 儲存分類", key="save_group_btn", use_container_width=True):
+                new_name = new_group_name.strip()
+                if not new_name:
+                    st.sidebar.warning("分類名稱不可為空")
+                else:
+                    new_symbols = normalize_symbols_from_text(symbols_text)
+
+                    updated = {}
+                    for k, v in groups.items():
+                        if k == selected_group:
+                            updated[new_name] = new_symbols
+                        else:
+                            updated[k] = v
+
+                    st.session_state.stock_groups = updated
+                    save_stock_groups(updated)
+                    st.rerun()
+
+        with col2:
+            if st.button("🗑️ 刪除分類", key="delete_group_btn", use_container_width=True):
+                if len(groups) <= 1:
+                    st.sidebar.warning("至少保留一個分類")
+                else:
+                    groups.pop(selected_group, None)
+                    st.session_state.stock_groups = groups
+                    save_stock_groups(groups)
+                    st.rerun()
+
+    # ===== 還原預設 =====
+    with st.sidebar.expander("♻️ 重設", expanded=False):
+        if st.button("還原預設分組", key="reset_groups_btn", use_container_width=True):
+            st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
+            save_stock_groups(st.session_state.stock_groups)
+            st.rerun()
+
+    # ===== 分組預覽 =====
+    with st.sidebar.expander("👀 分組預覽", expanded=False):
+        for g, symbols in st.session_state.stock_groups.items():
+            st.markdown(f"**{g}**（{len(symbols)}檔）")
+            st.caption(", ".join(symbols) if symbols else "（空）")
 
 
 # ===== 快取：降低重複請求 =====
@@ -385,6 +548,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
 
 # ===== 主畫面 =====
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
+render_stock_group_editor()
 
 # 台灣時間
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
@@ -403,7 +567,7 @@ rise_threshold = st.slider(
 group_tables = {}
 group_up_summary = []
 
-for group_name, stocks in stock_groups.items():
+for group_name, stocks in st.session_state.stock_groups.items():
     rows = []
     hit_count = 0      # 漲幅 >= 門檻
     up_count = 0       # 一般上漲（>0）
@@ -525,3 +689,4 @@ for group_name, info in group_tables.items():
 # ===== 自動刷新 =====
 time.sleep(REFRESH_SEC)
 st.rerun()
+``
