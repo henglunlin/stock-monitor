@@ -5,6 +5,66 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
 
+# ===== Streamlit UI 基本設定（要放前面）=====
+st.set_page_config(layout="wide")
+
+# ===== 手機固定 4 張卡片 + 可左右滑動 CSS =====
+st.markdown("""
+<style>
+/* 儀表板外層：手機可左右滑動 */
+.dashboard-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 8px;
+    width: 100%;
+}
+
+/* 固定 4 欄，手機也不改直排 */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(220px, 1fr));
+    gap: 12px;
+    min-width: 940px;   /* 保證至少能容納 4 張 */
+}
+
+/* 卡片樣式 */
+.dashboard-card {
+    border-radius: 12px;
+    padding: 14px 16px;
+    min-height: 175px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    box-sizing: border-box;
+}
+
+/* 卡片標題 */
+.dashboard-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+/* 卡片主數字 */
+.dashboard-main {
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+/* 卡片副說明 */
+.dashboard-sub {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+/* 卡片明細 */
+.dashboard-detail {
+    font-size: 14px;
+    line-height: 1.7;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ===== 刷新秒數 =====
 REFRESH_SEC = 30
 
@@ -242,79 +302,66 @@ def format_gap(val):
     return "-"
 
 
-# ===== 儀表板卡片 =====
+# ===== 儀表板卡片（新版：固定一排 4 個，手機可左右滑）=====
 def render_summary_dashboard(group_up_summary, rise_threshold):
     st.markdown("### 📌 各分類漲幅達標儀表板")
+    st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
 
-    st.caption(f"目前儀表板統計門檻：**漲幅 ≥ {rise_threshold}%**")
+    cards_html = '<div class="dashboard-scroll"><div class="dashboard-grid">'
 
-    cards_per_row = 4
-    for i in range(0, len(group_up_summary), cards_per_row):
-        row_items = group_up_summary[i:i + cards_per_row]
-        cols = st.columns(cards_per_row)
+    for item in group_up_summary:
+        group_name = item["分類"]
+        hit_count = item["達標數"]
+        total_count = item["總數"]
+        up_count = item["上漲數"]
+        down_count = item["下跌數"]
+        flat_count = item["平盤數"]
+        error_count = item["錯誤數"]
 
-        for col_idx in range(cards_per_row):
-            with cols[col_idx]:
-                if col_idx < len(row_items):
-                    item = row_items[col_idx]
-                    group_name = item["分類"]
-                    hit_count = item["達標數"]
-                    total_count = item["總數"]
-                    up_count = item["上漲數"]
-                    down_count = item["下跌數"]
-                    flat_count = item["平盤數"]
-                    error_count = item["錯誤數"]
+        hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
-                    hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
+        # 顏色邏輯保留
+        if hit_ratio >= 60:
+            bg_color = "#fff1f0"
+            border_color = "#ff7875"
+            accent_color = "#cf1322"
+        elif hit_ratio > 0:
+            bg_color = "#fff7e6"
+            border_color = "#ffa940"
+            accent_color = "#d46b08"
+        else:
+            bg_color = "#f6ffed"
+            border_color = "#95de64"
+            accent_color = "#389e0d"
 
-                    if hit_ratio >= 60:
-                        bg_color = "#fff1f0"
-                        border_color = "#ff7875"
-                        accent_color = "#cf1322"
-                    elif hit_ratio > 0:
-                        bg_color = "#fff7e6"
-                        border_color = "#ffa940"
-                        accent_color = "#d46b08"
-                    else:
-                        bg_color = "#f6ffed"
-                        border_color = "#95de64"
-                        accent_color = "#389e0d"
+        cards_html += f"""
+        <div class="dashboard-card" style="
+            background-color: {bg_color};
+            border: 1px solid {border_color};
+        ">
+            <div class="dashboard-title">{group_name}</div>
+            <div class="dashboard-main" style="color: {accent_color};">
+                {hit_count} / {total_count}
+            </div>
+            <div class="dashboard-sub">
+                漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%
+            </div>
+            <div class="dashboard-detail">
+                🎯 達標：<b>{hit_count}</b><br>
+                🔴 一般上漲：<b>{up_count}</b><br>
+                🟢 下跌：<b>{down_count}</b><br>
+                ⚪ 平盤：<b>{flat_count}</b><br>
+                ⚠️ 錯誤：<b>{error_count}</b>
+            </div>
+        </div>
+        """
 
-                    card_html = f"""
-                    <div style="
-                        background-color: {bg_color};
-                        border: 1px solid {border_color};
-                        border-radius: 12px;
-                        padding: 14px 16px;
-                        min-height: 175px;
-                        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-                        margin-bottom: 12px;
-                    ">
-                        <div style="font-size: 18px; font-weight: 700; margin-bottom: 10px;">
-                            {group_name}
-                        </div>
-                        <div style="font-size: 28px; font-weight: 800; color: {accent_color}; margin-bottom: 6px;">
-                            {hit_count} / {total_count}
-                        </div>
-                        <div style="font-size: 14px; color: #666; margin-bottom: 10px;">
-                            漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%
-                        </div>
-                        <div style="font-size: 14px; line-height: 1.7;">
-                            🎯 達標：<b>{hit_count}</b><br>
-                            🔴 一般上漲：<b>{up_count}</b><br>
-                            🟢 下跌：<b>{down_count}</b><br>
-                            ⚪ 平盤：<b>{flat_count}</b><br>
-                            ⚠️ 錯誤：<b>{error_count}</b>
-                        </div>
-                    </div>
-                    """
-                    st.markdown(card_html, unsafe_allow_html=True)
-                else:
-                    st.empty()
+    cards_html += "</div></div>"
+
+    st.markdown(cards_html, unsafe_allow_html=True)
 
 
-# ===== Streamlit UI =====
-st.set_page_config(layout="wide")
+# ===== 主畫面 =====
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
 
 # 台灣時間
@@ -353,11 +400,11 @@ for group_name, stocks in stock_groups.items():
             price = get_last_price(symbol, df)
             data = compute_indicators(df, price)
 
-            # ===== 儀表板統計改為：漲幅達標比例 =====
+            # ===== 儀表板統計：漲幅達標比例 =====
             if data["pct"] >= rise_threshold:
                 hit_count += 1
 
-            # ===== 仍保留原本漲跌統計 =====
+            # ===== 原本漲跌統計 =====
             if data["pct"] > 0:
                 up_count += 1
             elif data["pct"] < 0:
