@@ -321,6 +321,9 @@ for group_name, stocks in stock_groups.items():
 
 
 # ===== 紅框區：顯示各分類上漲檔數 =====
+
+import textwrap
+
 summary_html = """
 <div style="
     border: 2px solid #ff4b4b;
@@ -342,26 +345,16 @@ for item in group_up_summary:
     up = item["上漲數"]
     total = item["總數"]
 
-    if up > 0:
-        up_text_color = "#d62728"
-    else:
-        up_text_color = "#666666"
+    up_text_color = "#d62728" if up > 0 else "#666666"
 
     summary_html += f"""
-        <div style="white-space: nowrap;">
-            <span style="font-weight: 700;">{item['分類']}</span>
-            ：
-            <span style="color: {up_text_color}; font-weight: 700;">{up}</span>
-            / {total} 上漲
-        </div>
-    """
-
-summary_html += """
-    </div>
+<div style="white-space: nowrap;">
+    <span style="font-weight: 700;">{item['分類']}</span>
+    ：
+    <span style="color: {up_text_color}; font-weight: 700;">{up}</span>
+    / {total} 上漲
 </div>
-"""
 
-st.markdown(summary_html, unsafe_allow_html=True)
 
 
 # ===== 顯示各群組表格 =====
