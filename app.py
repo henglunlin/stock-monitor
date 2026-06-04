@@ -3,9 +3,7 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
 import time
-
 
 # ===== 刷新秒數 =====
 REFRESH_SEC = 30
@@ -191,7 +189,7 @@ def compute_indicators(df, price):
     else:
         kd_signal = "-"
 
-    # ===== 跳空判斷（新增，但不改原本邏輯）=====
+    # ===== 跳空判斷 =====
     gap_signal = "-"
     today_low = low.iloc[-1]
     yesterday_high = high.iloc[-2]
@@ -247,16 +245,19 @@ def format_gap(val):
 
 # ===== Streamlit UI =====
 st.set_page_config(layout="wide")
-st.title("📊 股票監控面板 -告訴我你會買日月光")
+st.title("📊 股票監控面板 - 告訴我你會買日月光")
+
+# 台灣時間
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
 st.caption(f"更新時間：{tw_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
+# ===== 先整理所有群組資料，方便做上方摘要 =====
+group_tables = {}
+group_up_summary = []
 
-# ===== 顯示各群組 =====
 for group_name, stocks in stock_groups.items():
-    st.subheader(f"【{group_name}】({len(stocks)}檔)")
-
     rows = []
+    up_count = 0
 
     for symbol in stocks:
         try:
@@ -268,6 +269,10 @@ for group_name, stocks in stock_groups.items():
 
             price = get_last_price(symbol, df)
             data = compute_indicators(df, price)
+
+            # 統計本分類上漲檔數
+            if data["pct"] > 0:
+                up_count += 1
 
             rows.append({
                 "代碼": symbol,
@@ -295,14 +300,74 @@ for group_name, stocks in stock_groups.items():
             })
 
     df_table = pd.DataFrame(rows)
+    display_df = df_table.copy()
 
     # 顯示前格式化（只改顯示，不改計算邏輯）
-    if not df_table.empty:
-        df_table["漲跌%"] = df_table["漲跌%"].apply(format_color)
-        df_table["K值"] = df_table["K值"].apply(format_k)
-        df_table["跳空訊號"] = df_table["跳空訊號"].apply(format_gap)
+    if not display_df.empty:
+        display_df["漲跌%"] = display_df["漲跌%"].apply(format_color)
+        display_df["K值"] = display_df["K值"].apply(format_k)
+        display_df["跳空訊號"] = display_df["跳空訊號"].apply(format_gap)
 
-    st.dataframe(df_table, use_container_width=True)
+    group_tables[group_name] = {
+        "count": len(stocks),
+        "table": display_df
+    }
+
+    group_up_summary.append({
+        "分類": group_name,
+        "上漲數": up_count,
+        "總數": len(stocks)
+    })
+
+
+# ===== 紅框區：顯示各分類上漲檔數 =====
+summary_html = """
+<div style="
+    border: 2px solid #ff4b4b;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 6px 0 16px 0;
+    background-color: rgba(255, 75, 75, 0.03);
+">
+    <div style="
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 24px;
+        font-size: 16px;
+        line-height: 1.8;
+    ">
+"""
+
+for item in group_up_summary:
+    up = item["上漲數"]
+    total = item["總數"]
+
+    if up > 0:
+        up_text_color = "#d62728"
+    else:
+        up_text_color = "#666666"
+
+    summary_html += f"""
+        <div style="white-space: nowrap;">
+            <span style="font-weight: 700;">{item['分類']}</span>
+            ：
+            <span style="color: {up_text_color}; font-weight: 700;">{up}</span>
+            / {total} 上漲
+        </div>
+    """
+
+summary_html += """
+    </div>
+</div>
+"""
+
+st.markdown(summary_html, unsafe_allow_html=True)
+
+
+# ===== 顯示各群組表格 =====
+for group_name, info in group_tables.items():
+    st.subheader(f"【{group_name}】({info['count']}檔)")
+    st.dataframe(info["table"], use_container_width=True)
 
 # ===== 自動刷新 =====
 time.sleep(REFRESH_SEC)
