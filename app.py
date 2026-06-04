@@ -1,10 +1,12 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
+import re
+import time
+from html import escape
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from html import escape
-import time
+
+import pandas as pd
+import streamlit as st
+import yfinance as yf
 
 # ===== Streamlit UI 基本設定（一定要放最前面）=====
 st.set_page_config(layout="wide")
@@ -101,6 +103,23 @@ stock_groups = {
         "3081.TWO", "3450.TW", "6442.TW"
     ],
 }
+
+
+# ===== 工具函式 =====
+def make_anchor_id(group_name: str) -> str:
+    """
+    將分類名稱轉成可當 HTML anchor 的 id
+    """
+    anchor = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "-", group_name).strip("-")
+    return f"group-{anchor}"
+
+
+def yahoo_quote_url(symbol: str) -> str:
+    """
+    產生 Yahoo Finance 連結
+    例如 2330.TW -> https://finance.yahoo.com/quote/2330.TW
+    """
+    return f"https://finance.yahoo.com/quote/{symbol}"
 
 
 # ===== 快取：降低重複請求 =====
@@ -303,7 +322,7 @@ def format_gap(val):
     return "-"
 
 
-# ===== 儀表板卡片（修正版：固定 4 張 + 手機可左右滑）=====
+# ===== 儀表板卡片（可點擊跳到分類表格）=====
 def render_summary_dashboard(group_up_summary, rise_threshold):
     st.markdown("### 📌 各分類漲幅達標儀表板")
     st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
@@ -313,6 +332,8 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
 
     for item in group_up_summary:
         group_name = escape(str(item["分類"]))
+        anchor_id = make_anchor_id(group_name)
+
         hit_count = item["達標數"]
         total_count = item["總數"]
         up_count = item["上漲數"]
@@ -337,8 +358,9 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             accent_color = "#389e0d"
 
         card_html = (
+            f'<a href="#{anchor_id}" style="text-decoration:none; color:inherit;">'
             f'<div class="dashboard-card" '
-            f'style="background-color:{bg_color}; border:1px solid {border_color};">'
+            f'style="background-color:{bg_color}; border:1px solid {border_color}; cursor:pointer;">'
             f'<div class="dashboard-title">{group_name}</div>'
             f'<div class="dashboard-main" style="color:{accent_color};">{hit_count} / {total_count}</div>'
             f'<div class="dashboard-sub">漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%</div>'
@@ -350,6 +372,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             f'⚠️ 錯誤：<b>{error_count}</b>'
             f'</div>'
             f'</div>'
+            f'</a>'
         )
 
         html_parts.append(card_html)
@@ -413,6 +436,7 @@ for group_name, stocks in stock_groups.items():
 
             rows.append({
                 "代碼": symbol,
+                "代碼網址": yahoo_quote_url(symbol),
                 "價格": f"{data['price']:.2f}",
                 "漲跌%": data["pct"],
                 "MA位置": data["ma_range"],
@@ -427,6 +451,7 @@ for group_name, stocks in stock_groups.items():
             error_count += 1
             rows.append({
                 "代碼": symbol,
+                "代碼網址": "",
                 "價格": "錯誤",
                 "漲跌%": "-",
                 "MA位置": "-",
@@ -468,8 +493,34 @@ st.divider()
 
 # ===== 顯示各群組表格 =====
 for group_name, info in group_tables.items():
+    anchor_id = make_anchor_id(group_name)
+
+    # 這個 anchor 讓儀表板可以跳過來
+    st.markdown(
+        f'<div id="{anchor_id}" style="scroll-margin-top: 80px;"></div>',
+        unsafe_allow_html=True
+    )
+
     st.subheader(f"【{group_name}】({info['count']}檔)")
-    st.dataframe(info["table"], use_container_width=True)
+
+    table_df = info["table"].copy()
+
+    # 用 URL 欄來取代顯示的代碼欄
+    table_df["代碼"] = table_df["代碼網址"]
+
+    st.dataframe(
+        table_df.drop(columns=["代碼網址"]),
+        use_container_width=True,
+        column_config={
+            "代碼": st.column_config.LinkColumn(
+                "代碼",
+                help="點擊前往 Yahoo Finance",
+                display_text=r"https://finance\.yahoo\.com/quote/(.*)"
+            )
+        }
+    )
+
+    st.markdown('<div style="margin-bottom: 10px;"></div>', unsafe_allow_html=True)
 
 # ===== 自動刷新 =====
 time.sleep(REFRESH_SEC)
