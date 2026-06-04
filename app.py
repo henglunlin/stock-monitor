@@ -157,30 +157,29 @@ for group_name, stocks in stock_groups.items():
 
     df_table = pd.DataFrame(rows)
 
-    # ===== 顏色格式 =====
-    def color_pct(val):
+    # ✅ ===== 新版顏色處理（不使用 style） =====
+    def format_color(val):
         if isinstance(val, (int, float)):
             if val > 0:
-                return "color:red"
+                return f"🔴 {val}"
             elif val < 0:
-                return "color:green"
-        return ""
+                return f"🟢 {val}"
+        return val
 
-    def color_k(val):
+    def format_k(val):
         if isinstance(val, (int, float)):
             if val >= 74:
-                return "color:red"
+                return f"🔴 {val}"
             elif val >= 50:
-                return "color:orange"
+                return f"🟡 {val}"
             else:
-                return "color:green"
-        return ""
+                return f"🟢 {val}"
+        return val
 
-    styled = df_table.style \
-        .applymap(color_pct, subset=["漲跌%"]) \
-        .applymap(color_k, subset=["K值"])
+    df_table["漲跌%"] = df_table["漲跌%"].apply(format_color)
+    df_table["K值"] = df_table["K值"].apply(format_k)
 
-    st.dataframe(styled, use_container_width=True)
+    st.dataframe(df_table, use_container_width=True)
 
 # ===== 自動刷新 =====
 time.sleep(REFRESH_SEC)
