@@ -1,12 +1,8 @@
 import streamlit as st
-import requests
 import yfinance as yf
 import pandas as pd
-import urllib3
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===============================
 # 股票分組
@@ -16,19 +12,17 @@ stock_groups = {
     "自選股": ["3008", "3035", "4956"]
 }
 
-session = requests.Session()
-session.headers.update({"User-Agent": "Mozilla/5.0"})
-
 # ===============================
-# 核心邏輯
+# 抓資料
 # ===============================
 def get_stock(stock_id):
     try:
-        hist = yf.download(f"{stock_id}.TW", period="3mo", progress=False)
-        if hist.empty:
-            hist = yf.download(f"{stock_id}.TWO", period="3mo", progress=False)
+        hist = yf.download(f"{stock_id}.TW", period="1mo", progress=False)
 
-        if hist.empty or len(hist) < 5:
+        if hist.empty:
+            hist = yf.download(f"{stock_id}.TWO", period="1mo", progress=False)
+
+        if hist.empty or len(hist) < 2:
             return None
 
         price = float(hist["Close"].iloc[-1])
@@ -38,37 +32,41 @@ def get_stock(stock_id):
         pct = diff / prev * 100
 
         return {
-            "id": stock_id,
-            "price": round(price, 2),
-            "pct": round(pct, 2)
+            "代號": stock_id,
+            "價格": round(price, 2),
+            "漲跌%": round(pct, 2)
         }
 
     except:
         return None
-
 
 # ===============================
 # UI
 # ===============================
 st.set_page_config(layout="wide")
 st.title("📊 台股即時監控")
-
 st.caption(f"更新時間：{datetime.now().strftime('%H:%M:%S')}")
 
-# ✅ 正確自動刷新（雲端用）
+# ✅ 自動刷新
 st_autorefresh(interval=30000)
 
+# ===============================
+# 顯示
+# ===============================
 for group, stocks in stock_groups.items():
     st.subheader(f"📂 {group}")
 
-    cols = st.columns(3)
+    data = []
 
-    for i, sid in enumerate(stocks):
+    for sid in stocks:
         r = get_stock(sid)
 
         if r:
-            cols[i % 3].metric(
-                label=sid,
-                value=f"{r['price']}",
-                delta=f"{r['pct']}%"
-            )
+            data.append(r)   # ✅ 這行很重要！！！
+
+    if data:
+        df = pd.DataFrame(data)
+
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.warning("抓不到資料")
