@@ -38,20 +38,105 @@ stock_groups = {
 }
 
 
+# ===== 快取：降低重複請求 =====
+@st.cache_data(ttl=REFRESH_SEC)
+def download_stock_data(symbol):
+    df = yf.download(
+        symbol,
+        period="3mo",
+        auto_adjust=True,
+        progress=False
+    )
+    return df
+
+
+# ===== 將 yfinance 回傳欄位整理成標準 OHLC =====
+def normalize_ohlc(df):
+    """
+    將 yfinance 可能回傳的 MultiIndex 或一般欄位，
+    統一整理成單層欄位：Open / High / Low / Close / Volume
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    required_cols = ["Open", "High", "Low", "Close", "Volume"]
+
+    # 如果本來就是單層欄位
+    if not isinstance(df.columns, pd.MultiIndex):
+        cols = [c for c in required_cols if c in df.columns]
+        if "Close" in cols and "High" in cols and "Low" in cols:
+            return df[cols].copy()
+        return pd.DataFrame()
+
+    # 如果是 MultiIndex，嘗試從多層欄位找出需要的欄位
+    normalized = pd.DataFrame(index=df.index)
+
+    for target_col in required_cols:
+        matched_series = None
+
+        for col in df.columns:
+            # col 可能像 ('Close', '2330.TW') 或 ('2330.TW', 'Close')
+            if isinstance(col, tuple) and target_col in col:
+                matched_series = df[col]
+                break
+
+        if matched_series is not None:
+            normalized[target_col] = matched_series
+
+    if {"Close", "High", "Low"}.issubset(normalized.columns):
+        return normalized
+
+    return pd.DataFrame()
+
+
+# ===== 取得價格：優先用 fast_info，抓不到就用最後收盤 =====
+def get_last_price(symbol, df):
+    try:
+        ticker = yf.Ticker(symbol)
+        price = ticker.fast_info.get("last_price", None)
+        if price is not None and pd.notna(price):
+            return float(price)
+    except Exception:
+        pass
+
+    # fallback
+    if not df.empty and "Close" in df.columns:
+        return float(df["Close"].iloc[-1])
+
+    raise ValueError("無法取得即時價格")
+
+
 # ===== 技術指標計算 =====
 def compute_indicators(df, price):
+    if df is None or df.empty:
+        raise ValueError("下載資料為空")
+
+    if len(df) < 20:
+        raise ValueError("歷史資料不足（至少需要 20 筆）")
+
     close = df["Close"]
     low = df["Low"]
     high = df["High"]
 
+    # 確保是數值型態
+    close = pd.to_numeric(close, errors="coerce")
+    low = pd.to_numeric(low, errors="coerce")
+    high = pd.to_numeric(high, errors="coerce")
+
+    if close.isna().all() or low.isna().all() or high.isna().all():
+        raise ValueError("OHLC 資料格式異常")
+
     # ===== 漲跌 =====
     yesterday_close = close.iloc[-2]
+    if pd.isna(yesterday_close) or yesterday_close == 0:
+        raise ValueError("昨收資料異常")
+
     change_pct = (price / yesterday_close - 1) * 100
 
     # ===== MA =====
-    ma5 = close.tail(5).mean()
-    ma10 = close.tail(10).mean()
-    ma20 = close.tail(20).mean()
+    ma5 = float(close.tail(5).mean())
+    ma10 = float(close.tail(10).mean())
+    ma20 = float(close.tail(20).mean())
 
     if price > ma5:
         ma_range = ">MA5"
@@ -70,16 +155,21 @@ def compute_indicators(df, price):
         ma_trend = "糾結"
 
     # ===== KD =====
-    rsv = (
-        (close - low.rolling(9).min()) /
-        (high.rolling(9).max() - low.rolling(9).min())
-    ) * 100
+    low_9 = low.rolling(9).min()
+    high_9 = high.rolling(9).max()
+    denominator = (high_9 - low_9).replace(0, pd.NA)
 
+    rsv = ((close - low_9) / denominator) * 100
     k = rsv.ewm(alpha=1/3, adjust=False).mean()
     d = k.ewm(alpha=1/3, adjust=False).mean()
 
-    k_t, d_t = k.iloc[-1], d.iloc[-1]
-    k_y, d_y = k.iloc[-2], d.iloc[-2]
+    if len(k.dropna()) < 2 or len(d.dropna()) < 2:
+        raise ValueError("KD 計算資料不足")
+
+    k_t = float(k.iloc[-1])
+    d_t = float(d.iloc[-1])
+    k_y = float(k.iloc[-2])
+    d_y = float(d.iloc[-2])
 
     # ===== KD 訊號 =====
     if k_y <= d_y and k_t > d_t:
@@ -96,8 +186,8 @@ def compute_indicators(df, price):
         kd_signal = "-"
 
     return {
-        "price": round(price, 2),
-        "pct": round(change_pct, 2),
+        "price": round(float(price), 2),
+        "pct": round(float(change_pct), 2),
         "ma_range": ma_range,
         "ma_trend": ma_trend,
         "k": round(k_t, 1),
@@ -106,10 +196,32 @@ def compute_indicators(df, price):
     }
 
 
+# ===== 顏色格式（不用 Styler） =====
+def format_color(val):
+    if isinstance(val, (int, float)):
+        if val > 0:
+            return f"🔴 +{val:.2f}%"
+        elif val < 0:
+            return f"🟢 {val:.2f}%"
+        else:
+            return f"{val:.2f}%"
+    return val
+
+
+def format_k(val):
+    if isinstance(val, (int, float)):
+        if val >= 74:
+            return f"🔴 {val:.1f}"
+        elif val >= 50:
+            return f"🟡 {val:.1f}"
+        else:
+            return f"🟢 {val:.1f}"
+    return val
+
+
 # ===== Streamlit UI =====
 st.set_page_config(layout="wide")
 st.title("📊 股票監控面板 (yfinance)")
-
 st.caption(f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # ===== 顯示各群組 =====
@@ -120,26 +232,23 @@ for group_name, stocks in stock_groups.items():
 
     for symbol in stocks:
         try:
-            ticker = yf.Ticker(symbol)
-            price = ticker.fast_info["last_price"]
+            raw_df = download_stock_data(symbol)
+            df = normalize_ohlc(raw_df)
 
-            df = yf.download(
-                symbol,
-                period="3mo",
-                auto_adjust=True,
-                progress=False
-            )
+            if df.empty:
+                raise ValueError("無法解析 yfinance 欄位格式")
 
+            price = get_last_price(symbol, df)
             data = compute_indicators(df, price)
 
             rows.append({
                 "代碼": symbol,
-                "價格": data["price"],
+                "價格": f"{data['price']:.2f}",
                 "漲跌%": data["pct"],
                 "MA位置": data["ma_range"],
                 "MA排列": data["ma_trend"],
                 "K值": data["k"],
-                "D值": data["d"],
+                "D值": f"{data['d']:.1f}",
                 "KD訊號": data["kd_signal"]
             })
 
@@ -157,27 +266,10 @@ for group_name, stocks in stock_groups.items():
 
     df_table = pd.DataFrame(rows)
 
-    # ✅ ===== 新版顏色處理（不使用 style） =====
-    def format_color(val):
-        if isinstance(val, (int, float)):
-            if val > 0:
-                return f"🔴 {val}"
-            elif val < 0:
-                return f"🟢 {val}"
-        return val
-
-    def format_k(val):
-        if isinstance(val, (int, float)):
-            if val >= 74:
-                return f"🔴 {val}"
-            elif val >= 50:
-                return f"🟡 {val}"
-            else:
-                return f"🟢 {val}"
-        return val
-
-    df_table["漲跌%"] = df_table["漲跌%"].apply(format_color)
-    df_table["K值"] = df_table["K值"].apply(format_k)
+    # 顯示前格式化（只改顯示，不改計算邏輯）
+    if not df_table.empty:
+        df_table["漲跌%"] = df_table["漲跌%"].apply(format_color)
+        df_table["K值"] = df_table["K值"].apply(format_k)
 
     st.dataframe(df_table, use_container_width=True)
 
