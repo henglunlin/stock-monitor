@@ -116,10 +116,10 @@ def make_anchor_id(group_name: str) -> str:
 
 def yahoo_quote_url(symbol: str) -> str:
     """
-    產生 Yahoo Finance 連結
-    例如 2330.TW -> https://finance.yahoo.com/quote/2330.TW
+    產生台股 Yahoo 個股頁連結
+    例如 2330.TW -> https://tw.stock.yahoo.com/quote/2330.TW
     """
-    return f"https://finance.yahoo.com/quote/{symbol}"
+    return f"https://tw.stock.yahoo.com/quote/{symbol}"
 
 
 # ===== 快取：降低重複請求 =====
@@ -514,8 +514,8 @@ for group_name, info in group_tables.items():
         column_config={
             "代碼": st.column_config.LinkColumn(
                 "代碼",
-                help="點擊前往 Yahoo Finance",
-                display_text=r"https://finance\.yahoo\.com/quote/(.*)"
+                help="點擊前往台股 Yahoo",
+                display_text=r"https://tw\.stock\.yahoo\.com/quote/(.*)"
             )
         }
     )
