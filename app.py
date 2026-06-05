@@ -48,7 +48,7 @@ st.markdown("""
 .dashboard-card {
     border-radius: 12px;
     padding: 14px 16px;
-    min-height: 175px;
+    min-height: 125px;  /* 調整高度以適應減少的資訊列 */
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     box-sizing: border-box;
 }
@@ -681,8 +681,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         total_count = item["總數"]
         up_count = item["上漲數"]
         down_count = item["下跌數"]
-        flat_count = item["平盤數"]
-        error_count = item["錯誤數"]
+        # 平盤數與錯誤數從呈現畫面移除
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -709,9 +708,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             f'<div class="dashboard-detail">'
             f'🎯 達標：<b>{hit_count}</b><br>'
             f'🔴 一般上漲：<b>{up_count}</b><br>'
-            f'🟢 下跌：<b>{down_count}</b><br>'
-            f'⚪ 平盤：<b>{flat_count}</b><br>'
-            f'⚠️ 錯誤：<b>{error_count}</b>'
+            f'🟢 下跌：<b>{down_count}</b>'
             f'</div>'
             f'</div>'
             f'</a>'
