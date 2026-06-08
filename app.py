@@ -256,6 +256,51 @@ def validate_and_normalize_group_json(data):
     return validated
 
 
+def normalize_symbol_quick(input_text: str):
+    """
+    快速輸入股票代碼時，自動補上 .TW / .TWO
+    簡單規則：
+    - 已有 .TW / .TWO 直接沿用
+    - 純數字且以 3 / 6 / 8 開頭，預設視為上櫃 .TWO
+    - 其他預設 .TW
+    """
+    s = str(input_text).strip().upper()
+
+    if not s:
+        return None
+
+    if "." in s:
+        return s
+
+    if s.isdigit():
+        if s.startswith(("3", "6", "8")):
+            return f"{s}.TWO"
+        return f"{s}.TW"
+
+    return s
+
+
+def set_next_selected_group(group_name: str):
+    """
+    避免 widget 已建立後直接修改 selected_group_editor
+    """
+    st.session_state._next_selected_group = group_name
+
+
+def enter_edit_mode():
+    """
+    進入編輯模式
+    """
+    st.session_state.editing_mode = True
+
+
+def leave_edit_mode():
+    """
+    離開編輯模式
+    """
+    st.session_state.editing_mode = False
+
+
 # ===== Session State 初始化 =====
 if "auto_refresh_enabled" not in st.session_state:
     st.session_state.auto_refresh_enabled = False
@@ -265,6 +310,9 @@ if "stock_groups" not in st.session_state:
 
 if "group_editor_unlocked" not in st.session_state:
     st.session_state.group_editor_unlocked = False
+
+if "editing_mode" not in st.session_state:
+    st.session_state.editing_mode = False
 
 if "selected_group_editor" not in st.session_state:
     group_names_init = list(st.session_state.stock_groups.keys())
@@ -278,6 +326,22 @@ if "symbols_text_area" not in st.session_state:
     st.session_state.symbols_text_area = "\n".join(
         st.session_state.stock_groups.get(selected, [])
     )
+
+if "quick_add_symbol_input" not in st.session_state:
+    st.session_state.quick_add_symbol_input = ""
+
+
+# ===== 延後切換 selected_group（避免 widget state 錯誤）=====
+if "_next_selected_group" in st.session_state:
+    pending_group = st.session_state._next_selected_group
+    del st.session_state._next_selected_group
+
+    if pending_group in st.session_state.stock_groups:
+        st.session_state.selected_group_editor = pending_group
+        st.session_state.rename_group_input = pending_group
+        st.session_state.symbols_text_area = "\n".join(
+            st.session_state.stock_groups.get(pending_group, [])
+        )
 
 
 def sync_editor_fields_from_selected_group():
@@ -297,6 +361,7 @@ def sync_editor_fields_from_selected_group():
 
     st.session_state.rename_group_input = selected_group
     st.session_state.symbols_text_area = "\n".join(groups.get(selected_group, []))
+    st.session_state.editing_mode = False
 
 
 # ===== 分組編輯鎖 =====
@@ -308,8 +373,10 @@ def render_group_editor_lock():
 
     if st.session_state.group_editor_unlocked:
         st.sidebar.success("已解鎖，可編輯股票分組")
+        st.sidebar.info("為避免編輯中被重刷，分組編輯解鎖時會暫停自動更新")
         if st.sidebar.button("鎖定編輯", key="lock_group_editor_btn", use_container_width=True):
             st.session_state.group_editor_unlocked = False
+            leave_edit_mode()
             st.rerun()
         return
 
@@ -322,6 +389,7 @@ def render_group_editor_lock():
     if st.sidebar.button("解鎖編輯", key="unlock_group_editor_btn", use_container_width=True):
         if pin_input == GROUP_EDIT_PIN:
             st.session_state.group_editor_unlocked = True
+            enter_edit_mode()
             st.sidebar.success("PIN 正確，已解鎖")
             st.rerun()
         else:
@@ -342,16 +410,19 @@ def render_stock_group_editor():
         groups = st.session_state.stock_groups
         group_names = list(groups.keys())
 
-    # 保證 selected_group 合法
+    # 保證 selected_group 合法（在 widget 建立前處理）
     if st.session_state.selected_group_editor not in group_names:
-        st.session_state.selected_group_editor = group_names[0]
-        sync_editor_fields_from_selected_group()
+        first_group = group_names[0]
+        st.session_state.selected_group_editor = first_group
+        st.session_state.rename_group_input = first_group
+        st.session_state.symbols_text_area = "\n".join(groups.get(first_group, []))
 
     # ===== 新增分類 =====
     with st.sidebar.expander("➕ 新增分類", expanded=False):
         new_group_name = st.text_input("分類名稱", key="new_group_name_input")
 
         if st.button("新增分類", key="add_group_btn", use_container_width=True):
+            enter_edit_mode()
             name = new_group_name.strip()
 
             if not name:
@@ -363,9 +434,8 @@ def render_stock_group_editor():
                 st.session_state.stock_groups = groups
                 save_stock_groups(groups)
 
-                # 新增後切到新分類
-                st.session_state.selected_group_editor = name
-                sync_editor_fields_from_selected_group()
+                # 新增後切到新分類（用延後切換）
+                set_next_selected_group(name)
                 st.rerun()
 
     # ===== 編輯既有分類 =====
@@ -381,14 +451,60 @@ def render_stock_group_editor():
 
         new_group_name = st.text_input(
             "分類名稱（可修改）",
-            key="rename_group_input"
+            key="rename_group_input",
+            on_change=enter_edit_mode
         )
 
         symbols_text = st.text_area(
             "股票清單（每行一檔，或逗號分隔）",
             height=220,
-            key="symbols_text_area"
+            key="symbols_text_area",
+            on_change=enter_edit_mode
         )
+
+        # ===== 快速新增股票搜尋 =====
+        st.markdown("### ⚡ 快速新增股票搜尋")
+
+        quick_col1, quick_col2 = st.columns([2, 1])
+
+        with quick_col1:
+            quick_input = st.text_input(
+                "輸入股票代碼或 ticker（例如 2330、2330.TW、6488.TWO）",
+                key="quick_add_symbol_input",
+                on_change=enter_edit_mode
+            )
+
+        normalized_quick_symbol = normalize_symbol_quick(quick_input)
+
+        if normalized_quick_symbol:
+            st.caption(f"標準化代碼：{normalized_quick_symbol}")
+
+        with quick_col2:
+            if st.button("加入目前分類", key="quick_add_btn", use_container_width=True):
+                enter_edit_mode()
+
+                symbol = normalize_symbol_quick(quick_input)
+
+                if not symbol:
+                    st.warning("請輸入股票代碼")
+                else:
+                    current_list = groups.get(selected_group, [])
+
+                    if symbol in current_list:
+                        st.warning("此股票已存在於目前分類")
+                    else:
+                        current_list.append(symbol)
+                        groups[selected_group] = current_list
+
+                        st.session_state.stock_groups = groups
+                        save_stock_groups(groups)
+
+                        # 同步更新文字區
+                        st.session_state.symbols_text_area = "\n".join(current_list)
+                        st.session_state.quick_add_symbol_input = ""
+
+                        st.success(f"已加入 {symbol}")
+                        st.rerun()
 
         col1, col2 = st.columns(2)
 
@@ -413,9 +529,10 @@ def render_stock_group_editor():
                     st.session_state.stock_groups = updated
                     save_stock_groups(updated)
 
-                    # 儲存後切到新名稱
-                    st.session_state.selected_group_editor = new_name
-                    sync_editor_fields_from_selected_group()
+                    leave_edit_mode()
+
+                    # 儲存後切到新名稱（用延後切換）
+                    set_next_selected_group(new_name)
                     st.rerun()
 
         with col2:
@@ -427,10 +544,11 @@ def render_stock_group_editor():
                     st.session_state.stock_groups = groups
                     save_stock_groups(groups)
 
-                    # 刪除後切到第一個分類
+                    leave_edit_mode()
+
+                    # 刪除後切到第一個分類（用延後切換）
                     remaining = list(groups.keys())
-                    st.session_state.selected_group_editor = remaining[0]
-                    sync_editor_fields_from_selected_group()
+                    set_next_selected_group(remaining[0])
                     st.rerun()
 
     # ===== 備份 / 匯出 / 匯入 JSON =====
@@ -478,10 +596,11 @@ def render_stock_group_editor():
                     st.session_state.stock_groups = validated
                     save_stock_groups(validated)
 
-                    # 匯入後同步選取狀態
+                    leave_edit_mode()
+
+                    # 匯入後同步選取狀態（延後切換）
                     first_group = list(validated.keys())[0]
-                    st.session_state.selected_group_editor = first_group
-                    sync_editor_fields_from_selected_group()
+                    set_next_selected_group(first_group)
 
                     st.sidebar.success("JSON 匯入成功，已覆蓋目前股票分組")
                     st.rerun()
@@ -508,9 +627,10 @@ def render_stock_group_editor():
             st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
             save_stock_groups(st.session_state.stock_groups)
 
+            leave_edit_mode()
+
             first_group = list(st.session_state.stock_groups.keys())[0]
-            st.session_state.selected_group_editor = first_group
-            sync_editor_fields_from_selected_group()
+            set_next_selected_group(first_group)
 
             st.rerun()
 
@@ -929,6 +1049,12 @@ for group_name, info in group_tables.items():
     st.markdown('<div style="margin-bottom: 10px;"></div>', unsafe_allow_html=True)
 
 # ===== 底部的自動刷新觸發判定 =====
-if st.session_state.auto_refresh_enabled:
+# 為避免編輯中被重刷，只要分組編輯已解鎖 或 editing_mode=True 就暫停自動更新
+if (
+    st.session_state.auto_refresh_enabled
+    and not st.session_state.group_editor_unlocked
+    and not st.session_state.editing_mode
+):
     time.sleep(REFRESH_SEC)
     st.rerun()
+``
