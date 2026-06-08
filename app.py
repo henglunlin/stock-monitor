@@ -823,7 +823,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
             has_kd_signal = data["kd_signal"] in ["黃金交叉", "即將黃金交叉"]
             has_gap_signal = data["gap_signal"] == "跳空"
             
-            if is_high_gain and (has_kd_signal or has_gap_signal):
+            if is_high_gain or (has_kd_signal or has_gap_signal):
                 today_str = tw_now.strftime("%Y-%m-%d")
                 notify_key = f"{symbol}_{today_str}"
                 
