@@ -441,6 +441,40 @@ def format_pct_plain(val) -> str:
     except Exception:
         return "-"
 
+def build_top3_html(valid_stock_stats):
+    """
+    依照漲跌幅排序，取前三名，並產生 HTML：
+    - 股票代碼 / 名稱：維持黑色
+    - 上漲百分比：紅字
+    - 下跌百分比：綠字
+    - 平盤百分比：黑字
+    """
+    if not valid_stock_stats:
+        return '<span style="color:#666666;">無可用資料</span>'
+
+    top3_sorted = sorted(valid_stock_stats, key=lambda x: x["pct"], reverse=True)[:3]
+
+    parts = []
+    for item in top3_sorted:
+        pct = float(item["pct"])
+        if pct > 0:
+            pct_color = "#cf1322"   # 紅
+        elif pct < 0:
+            pct_color = "#389e0d"   # 綠
+        else:
+            pct_color = "#333333"   # 黑 / 深灰
+
+        code_text = escape(str(item["code"]))
+        name_text = escape(str(item["name"]))
+        pct_text = f"{pct:+.1f}%"
+
+        parts.append(
+            f'<span style="color:#000000;">{code_text} {name_text} </span>'
+            f'<span style="color:{pct_color}; font-weight:600;">{pct_text}</span>'
+        )
+
+    return " | ".join(parts)		
+		
 
 def compact_name_list(names, max_show=3):
     """
