@@ -52,6 +52,9 @@ DEFAULT_STOCK_GROUPS = {
 }
 
 # ===== CSS =====
+# 只調整儀表板內的字色：
+# - title / sub / detail 固定黑色
+# - main 保留由 inline style 的 accent_color 控制
 st.markdown("""
 <style>
 /* 儀表板外層：手機可左右滑動 */
@@ -79,31 +82,33 @@ st.markdown("""
     box-sizing: border-box;
 }
 
-/* 卡片標題 */
+/* 卡片標題：固定黑色 */
 .dashboard-title {
     font-size: 18px;
     font-weight: 700;
     margin-bottom: 10px;
+    color: #000000 !important;
 }
 
-/* 卡片主數字 */
+/* 卡片主數字：保留 accent_color，不在這裡鎖死 */
 .dashboard-main {
     font-size: 28px;
     font-weight: 800;
     margin-bottom: 6px;
 }
 
-/* 卡片副說明 */
+/* 卡片副說明：固定黑色 */
 .dashboard-sub {
     font-size: 14px;
-    color: #666;
+    color: #000000 !important;
     margin-bottom: 10px;
 }
 
-/* 卡片明細 */
+/* 卡片明細：固定黑色 */
 .dashboard-detail {
     font-size: 14px;
     line-height: 1.7;
+    color: #000000 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -836,6 +841,9 @@ def format_gap(val):
 
 
 # ===== 儀表板卡片 =====
+# 只改這裡：
+# - title/sub/detail 固定黑
+# - main 保留 accent_color
 def render_summary_dashboard(group_up_summary, rise_threshold):
     st.markdown("### 📌 各分類漲幅達標儀表板")
     st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
@@ -868,7 +876,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             accent_color = "#389e0d"
 
         card_html = (
-            f'<a href="#{anchor_id}" style="text-decoration:none; color:inherit;">'
+            f'#{anchor_id}'
             f'<div class="dashboard-card" '
             f'style="background-color:{bg_color}; border:1px solid {border_color}; cursor:pointer;">'
             f'<div class="dashboard-title">{group_name}</div>'
@@ -1057,4 +1065,3 @@ if (
 ):
     time.sleep(REFRESH_SEC)
     st.rerun()
-
