@@ -15,17 +15,43 @@ import yfinance as yf
 # ===== Streamlit UI 基本設定（一定要放最前面）=====
 st.set_page_config(layout="wide")
 
-# ===== 初始化狀態（必須在 UI 渲染前設定好預設值）=====
-if "auto_refresh_enabled" not in st.session_state:
-    st.session_state.auto_refresh_enabled = False  # 預設關閉自動更新，避免使用者一開啟就卡住
+# ===== 常數設定 =====
+REFRESH_SEC = 30
+ENABLE_GAP_SIGNAL = True
+GROUP_EDIT_PIN = "1219"
+GROUPS_FILE = "stock_groups.json"
+BACKUP_DIR = "backups"
 
-if "stock_groups" not in st.session_state:
-    st.session_state.stock_groups = load_stock_groups() if 'load_stock_groups' in globals() else {}
+DEFAULT_STOCK_GROUPS = {
+    "權值股": [
+        "2330.TW", "00981A.TW", "2449.TW", "2317.TW", "3711.TW",
+        "6488.TWO", "2327.TW", "6176.TW", "2303.TW", "5347.TWO",
+    ],
+    "自選股1": [
+        "3008.TW", "3035.TW", "4566.TW", "4956.TW", "6456.TW",
+        "4749.TWO", "6271.TW", "6290.TWO", "4919.TW"
+    ],
+    "低軌衛星": [
+        "6285.TW", "2313.TW",
+    ],
+    "ABF": [
+        "4958.TW", "3037.TW", "8046.TW", "3189.TW",
+        "8996.TW", "5439.TWO", "8358.TWO",
+    ],
+    "記憶體": [
+        "6770.TW", "2408.TW", "2344.TW", "8271.TW",
+        "4967.TW", "3260.TWO", "2451.TW",
+    ],
+    "CCL": [
+        "2383.TW", "6274.TWO", "6213.TW", "8039.TW"
+    ],
+    "CPO": [
+        "4979.TWO", "3163.TWO", "4977.TW",
+        "3081.TWO", "3450.TW", "6442.TW"
+    ],
+}
 
-if "group_editor_unlocked" not in st.session_state:
-    st.session_state.group_editor_unlocked = False
-
-# ===== 手機固定 4 張卡片 + 可左右滑動 CSS =====
+# ===== CSS =====
 st.markdown("""
 <style>
 /* 儀表板外層：手機可左右滑動 */
@@ -41,14 +67,14 @@ st.markdown("""
     display: grid;
     grid-template-columns: repeat(4, minmax(220px, 1fr));
     gap: 12px;
-    min-width: 940px;   /* 確保至少能容納 4 張 */
+    min-width: 940px;
 }
 
 /* 卡片 */
 .dashboard-card {
     border-radius: 12px;
     padding: 14px 16px;
-    min-height: 125px;  /* 調整高度以適應減少的資訊列 */
+    min-height: 125px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     box-sizing: border-box;
 }
@@ -81,50 +107,6 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-
-# ===== 刷新秒數 =====
-REFRESH_SEC = 30
-
-# ===== 是否啟用跳空判斷 =====
-ENABLE_GAP_SIGNAL = True
-
-# ===== 分組編輯 PIN =====
-GROUP_EDIT_PIN = "1219"
-
-# ===== 股票分組設定檔 =====
-GROUPS_FILE = "stock_groups.json"
-BACKUP_DIR = "backups"
-
-# ===== 預設股票分組 =====
-DEFAULT_STOCK_GROUPS = {
-    "權值股": [
-        "2330.TW", "00981A.TW", "2449.TW", "2317.TW", "3711.TW",
-        "6488.TWO", "2327.TW", "6176.TW", "2303.TW", "5347.TWO",
-    ],
-    "自選股1": [
-        "3008.TW", "3035.TW", "4566.TW", "4956.TW", "6456.TW",
-        "4749.TWO", "6271.TW", "6290.TWO", "4919.TW"
-    ],
-    "低軌衛星": [
-        "6285.TW", "2313.TW",
-    ],
-    "ABF": [
-        "4958.TW", "3037.TW", "8046.TW", "3189.TW",
-        "8996.TW", "5439.TWO", "8358.TWO",
-    ],
-    "記憶體": [
-        "6770.TW", "2408.TW", "2344.TW", "8271.TW",
-        "4967.TW", "3260.TWO", "2451.TW",
-    ],
-    "CCL": [
-        "2383.TW", "6274.TWO", "6213.TW", "8039.TW"
-    ],
-    "CPO": [
-        "4979.TWO", "3163.TWO", "4977.TW",
-        "3081.TWO", "3450.TW", "6442.TW"
-    ],
-}
-
 
 # ===== 分組讀寫 =====
 def load_stock_groups():
@@ -192,10 +174,6 @@ def list_backup_files():
     return [name for name, _ in files]
 
 
-# ===== 重新載入最新狀態 =====
-st.session_state.stock_groups = load_stock_groups()
-
-
 # ===== 工具函式 =====
 def make_anchor_id(group_name: str) -> str:
     """
@@ -208,7 +186,6 @@ def make_anchor_id(group_name: str) -> str:
 def yahoo_quote_url(symbol: str) -> str:
     """
     產生台股 Yahoo 個股頁連結
-    例如 2330.TW -> https://tw.stock.yahoo.com/quote/2330.TW
     """
     return f"https://tw.stock.yahoo.com/quote/{symbol}"
 
@@ -279,10 +256,53 @@ def validate_and_normalize_group_json(data):
     return validated
 
 
+# ===== Session State 初始化 =====
+if "auto_refresh_enabled" not in st.session_state:
+    st.session_state.auto_refresh_enabled = False
+
+if "stock_groups" not in st.session_state:
+    st.session_state.stock_groups = load_stock_groups()
+
+if "group_editor_unlocked" not in st.session_state:
+    st.session_state.group_editor_unlocked = False
+
+if "selected_group_editor" not in st.session_state:
+    group_names_init = list(st.session_state.stock_groups.keys())
+    st.session_state.selected_group_editor = group_names_init[0] if group_names_init else ""
+
+if "rename_group_input" not in st.session_state:
+    st.session_state.rename_group_input = st.session_state.selected_group_editor
+
+if "symbols_text_area" not in st.session_state:
+    selected = st.session_state.selected_group_editor
+    st.session_state.symbols_text_area = "\n".join(
+        st.session_state.stock_groups.get(selected, [])
+    )
+
+
+def sync_editor_fields_from_selected_group():
+    """
+    當切換分類時，同步編輯欄位內容
+    """
+    groups = st.session_state.stock_groups
+    selected_group = st.session_state.selected_group_editor
+
+    if selected_group not in groups:
+        group_names = list(groups.keys())
+        if group_names:
+            selected_group = group_names[0]
+            st.session_state.selected_group_editor = selected_group
+        else:
+            selected_group = ""
+
+    st.session_state.rename_group_input = selected_group
+    st.session_state.symbols_text_area = "\n".join(groups.get(selected_group, []))
+
+
+# ===== 分組編輯鎖 =====
 def render_group_editor_lock():
     """
     Sidebar 的 PIN 驗證鎖
-    驗證成功後才能編輯股票分組
     """
     st.sidebar.markdown("## 🔐 分組編輯鎖")
 
@@ -322,11 +342,18 @@ def render_stock_group_editor():
         groups = st.session_state.stock_groups
         group_names = list(groups.keys())
 
+    # 保證 selected_group 合法
+    if st.session_state.selected_group_editor not in group_names:
+        st.session_state.selected_group_editor = group_names[0]
+        sync_editor_fields_from_selected_group()
+
     # ===== 新增分類 =====
     with st.sidebar.expander("➕ 新增分類", expanded=False):
         new_group_name = st.text_input("分類名稱", key="new_group_name_input")
+
         if st.button("新增分類", key="add_group_btn", use_container_width=True):
             name = new_group_name.strip()
+
             if not name:
                 st.sidebar.warning("請輸入分類名稱")
             elif name in groups:
@@ -335,24 +362,30 @@ def render_stock_group_editor():
                 groups[name] = []
                 st.session_state.stock_groups = groups
                 save_stock_groups(groups)
+
+                # 新增後切到新分類
+                st.session_state.selected_group_editor = name
+                sync_editor_fields_from_selected_group()
                 st.rerun()
 
     # ===== 編輯既有分類 =====
     with st.sidebar.expander("📝 編輯分類", expanded=True):
-        selected_group = st.selectbox("選擇分類", group_names, key="selected_group_editor")
+        st.selectbox(
+            "選擇分類",
+            options=group_names,
+            key="selected_group_editor",
+            on_change=sync_editor_fields_from_selected_group
+        )
 
-        current_symbols = groups[selected_group]
-        current_text = "\n".join(current_symbols)
+        selected_group = st.session_state.selected_group_editor
 
         new_group_name = st.text_input(
             "分類名稱（可修改）",
-            value=selected_group,
             key="rename_group_input"
         )
 
         symbols_text = st.text_area(
             "股票清單（每行一檔，或逗號分隔）",
-            value=current_text,
             height=220,
             key="symbols_text_area"
         )
@@ -362,8 +395,11 @@ def render_stock_group_editor():
         with col1:
             if st.button("💾 儲存分類", key="save_group_btn", use_container_width=True):
                 new_name = new_group_name.strip()
+
                 if not new_name:
                     st.sidebar.warning("分類名稱不可為空")
+                elif new_name != selected_group and new_name in groups:
+                    st.sidebar.warning("分類名稱已存在，請使用其他名稱")
                 else:
                     new_symbols = normalize_symbols_from_text(symbols_text)
 
@@ -376,6 +412,10 @@ def render_stock_group_editor():
 
                     st.session_state.stock_groups = updated
                     save_stock_groups(updated)
+
+                    # 儲存後切到新名稱
+                    st.session_state.selected_group_editor = new_name
+                    sync_editor_fields_from_selected_group()
                     st.rerun()
 
         with col2:
@@ -386,6 +426,11 @@ def render_stock_group_editor():
                     groups.pop(selected_group, None)
                     st.session_state.stock_groups = groups
                     save_stock_groups(groups)
+
+                    # 刪除後切到第一個分類
+                    remaining = list(groups.keys())
+                    st.session_state.selected_group_editor = remaining[0]
+                    sync_editor_fields_from_selected_group()
                     st.rerun()
 
     # ===== 備份 / 匯出 / 匯入 JSON =====
@@ -427,11 +472,16 @@ def render_stock_group_editor():
                     data = json.loads(raw.decode("utf-8"))
                     validated = validate_and_normalize_group_json(data)
 
-                    # 匯入前先自動備份一份目前設定
+                    # 匯入前先自動備份
                     save_backup_snapshot(st.session_state.stock_groups)
 
                     st.session_state.stock_groups = validated
                     save_stock_groups(validated)
+
+                    # 匯入後同步選取狀態
+                    first_group = list(validated.keys())[0]
+                    st.session_state.selected_group_editor = first_group
+                    sync_editor_fields_from_selected_group()
 
                     st.sidebar.success("JSON 匯入成功，已覆蓋目前股票分組")
                     st.rerun()
@@ -450,7 +500,6 @@ def render_stock_group_editor():
     # ===== 還原預設 =====
     with st.sidebar.expander("♻️ 重設", expanded=False):
         if st.button("還原預設分組", key="reset_groups_btn", use_container_width=True):
-            # 還原前先自動備份
             try:
                 save_backup_snapshot(st.session_state.stock_groups)
             except Exception:
@@ -458,6 +507,11 @@ def render_stock_group_editor():
 
             st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
             save_stock_groups(st.session_state.stock_groups)
+
+            first_group = list(st.session_state.stock_groups.keys())[0]
+            st.session_state.selected_group_editor = first_group
+            sync_editor_fields_from_selected_group()
+
             st.rerun()
 
     # ===== 分組預覽 =====
@@ -541,13 +595,9 @@ def compute_indicators(df, price):
     if len(df) < 20:
         raise ValueError("歷史資料不足（至少需要 20 筆）")
 
-    close = df["Close"]
-    low = df["Low"]
-    high = df["High"]
-
-    close = pd.to_numeric(close, errors="coerce")
-    low = pd.to_numeric(low, errors="coerce")
-    high = pd.to_numeric(high, errors="coerce")
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    low = pd.to_numeric(df["Low"], errors="coerce")
+    high = pd.to_numeric(df["High"], errors="coerce")
 
     if close.isna().all() or low.isna().all() or high.isna().all():
         raise ValueError("OHLC 資料格式異常")
@@ -681,7 +731,6 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         total_count = item["總數"]
         up_count = item["上漲數"]
         down_count = item["下跌數"]
-        # 平盤數與錯誤數從呈現畫面移除
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -717,7 +766,6 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         html_parts.append(card_html)
 
     html_parts.append("</div></div>")
-
     cards_html = "".join(html_parts)
     st.markdown(cards_html, unsafe_allow_html=True)
 
@@ -725,27 +773,25 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
 # ==================== 主畫面開始 ====================
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
 
-# ===== [插入功能] 手動更新與自動更新控制列 =====
+# ===== 手動更新與自動更新控制列 =====
 col1, col2 = st.columns(2)
 
 with col1:
-    # 手動按鈕：強制清除快取並重整
     if st.button("🔄 手動更新即時資料 (清除快取)", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
 with col2:
-    # 開關 (Toggle)：控制是否啟動自動刷新
-    auto_refresh = st.toggle("⏱️ 啟用自動更新 (每 30 秒)", value=st.session_state.auto_refresh_enabled)
-    
-    # 如果使用者切換了開關，把狀態存進 Session 並立即重整畫面
+    auto_refresh = st.toggle(
+        "⏱️ 啟用自動更新 (每 30 秒)",
+        value=st.session_state.auto_refresh_enabled
+    )
+
     if auto_refresh != st.session_state.auto_refresh_enabled:
         st.session_state.auto_refresh_enabled = auto_refresh
         st.rerun()
 
-# 確保底層沒有殘留無用記憶體
 gc.collect()
-# ===================================================
 
 # ===== 分組編輯鎖 =====
 render_group_editor_lock()
@@ -755,7 +801,7 @@ if st.session_state.group_editor_unlocked:
 else:
     st.sidebar.info("目前為唯讀模式：輸入 PIN 後才能修改股票分組")
 
-# 台灣時間
+# ===== 台灣時間 =====
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
 st.caption(f"更新時間：{tw_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -865,7 +911,9 @@ for group_name, info in group_tables.items():
 
     st.subheader(f"【{group_name}】({info['count']}檔)")
     table_df = info["table"].copy()
-    table_df["代碼"] = table_df["代碼網址"]
+
+    if not table_df.empty and "代碼網址" in table_df.columns:
+        table_df["代碼"] = table_df["代碼網址"]
 
     st.dataframe(
         table_df.drop(columns=["代碼網址"]),
@@ -880,8 +928,7 @@ for group_name, info in group_tables.items():
     )
     st.markdown('<div style="margin-bottom: 10px;"></div>', unsafe_allow_html=True)
 
-
-# ===== [插入功能] 底部的自動刷新觸發判定 =====
+# ===== 底部的自動刷新觸發判定 =====
 if st.session_state.auto_refresh_enabled:
     time.sleep(REFRESH_SEC)
     st.rerun()
