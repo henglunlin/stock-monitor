@@ -4,6 +4,7 @@ import json
 import copy
 import time
 import gc
+import requests  
 from html import escape
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -22,6 +23,10 @@ GROUP_EDIT_PIN = "1219"
 GROUPS_FILE = "stock_groups.json"
 BACKUP_DIR = "backups"
 STOCK_NAME_FILE = "TWstocklistname.txt"
+
+# ===== Telegram 設定（請替換為你的資訊）=====
+TELEGRAM_BOT_TOKEN = "8791864222:AAGWDyMI1l9q2k9sn0jyctINuvJF6tbT2fk"  
+TELEGRAM_CHAT_ID = "8299437524"    
 
 DEFAULT_STOCK_GROUPS = {
     "權值股": [
@@ -152,9 +157,6 @@ st.markdown("""
 
 # ===== 分組讀寫 =====
 def load_stock_groups():
-    """
-    優先讀取本地 JSON，若失敗則載入預設值
-    """
     if os.path.exists(GROUPS_FILE):
         try:
             with open(GROUPS_FILE, "r", encoding="utf-8") as f:
@@ -166,28 +168,18 @@ def load_stock_groups():
 
     return copy.deepcopy(DEFAULT_STOCK_GROUPS)
 
-
 def save_stock_groups(groups):
-    """
-    將分組儲存到本地 JSON
-    """
     with open(GROUPS_FILE, "w", encoding="utf-8") as f:
         json.dump(groups, f, ensure_ascii=False, indent=2)
 
-
 def ensure_backup_dir():
     os.makedirs(BACKUP_DIR, exist_ok=True)
-
 
 def create_backup_filename():
     tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
     return f"stock_groups_backup_{tw_now.strftime('%Y%m%d_%H%M%S')}.json"
 
-
 def save_backup_snapshot(groups):
-    """
-    建立本地備份檔
-    """
     ensure_backup_dir()
     filename = create_backup_filename()
     file_path = os.path.join(BACKUP_DIR, filename)
@@ -197,11 +189,7 @@ def save_backup_snapshot(groups):
 
     return file_path
 
-
 def list_backup_files():
-    """
-    列出最近備份檔（新到舊）
-    """
     if not os.path.exists(BACKUP_DIR):
         return []
 
@@ -215,32 +203,36 @@ def list_backup_files():
     files.sort(key=lambda x: x[1], reverse=True)
     return [name for name, _ in files]
 
-
 # ===== 工具函式 =====
+def send_telegram_message(text: str):
+    """
+    發送 Telegram 訊息的工具函式
+    """
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    try:
+        res = requests.post(url, json=payload, timeout=5)
+        if res.status_code != 200:
+            st.error(f"Telegram 傳送失敗，API 回傳：{res.text}")
+    except Exception as e:
+        st.error(f"Telegram 連線失敗: {e}")
+
 def make_anchor_id(group_name: str) -> str:
-    """
-    將分類名稱轉成可當 HTML anchor 的 id
-    """
     anchor = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "-", group_name).strip("-")
     return f"group-{anchor}"
 
-
 def yahoo_quote_url(symbol: str) -> str:
-    """
-    產生台股 Yahoo 個股頁連結
-    """
-    return f"https://tw.stock.yahoo.com/quote/{symbol}/technical-analysis"
-
+    return f"https://tw.stock.yahoo.com/quote/{symbol}"
 
 @st.cache_data(ttl=86400)
 def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
-    """
-    從本地 TWstocklistname.txt 載入股票名稱對照表
-    格式支援：
-    1101.TW    台泥
-    2330.TW    台積電
-    （tab 或多空白分隔皆可）
-    """
     name_map = {}
 
     if not os.path.exists(file_path):
@@ -252,7 +244,6 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
             if not line:
                 continue
 
-            # 去掉 BOM / 全形空白
             line = line.replace("\ufeff", "").replace("\u3000", "")
 
             if "\t" in line:
@@ -264,7 +255,6 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
                     name_map[symbol] = name
                     continue
 
-            # fallback：多空白切兩欄
             m = re.match(r"^([^\s]+)\s+(.+)$", line)
             if m:
                 symbol = m.group(1).strip().upper()
@@ -273,15 +263,8 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
 
     return name_map
 
-
 @st.cache_data(ttl=86400)
 def get_stock_name(symbol: str) -> str:
-    """
-    取得股票名稱：
-    1. 先吃本地 txt 對照表（中文名稱優先）
-    2. 再用 yfinance 抓 shortName / longName / displayName / name
-    3. 最後 fallback 為代碼主體
-    """
     name_map = load_stock_name_map(STOCK_NAME_FILE)
 
     if symbol in name_map:
@@ -289,7 +272,6 @@ def get_stock_name(symbol: str) -> str:
 
     try:
         ticker = yf.Ticker(symbol)
-
         info = {}
         try:
             info = ticker.get_info()
@@ -309,15 +291,7 @@ def get_stock_name(symbol: str) -> str:
 
     return symbol.split(".")[0]
 
-
 def normalize_symbols_from_text(text: str):
-    """
-    將文字區輸入轉成股票代碼清單
-    支援：
-    - 一行一檔
-    - 半形逗號
-    - 全形逗號
-    """
     if not text:
         return []
 
@@ -332,7 +306,6 @@ def normalize_symbols_from_text(text: str):
         parts = [p.strip().upper() for p in raw_line.split(",") if p.strip()]
         lines.extend(parts)
 
-    # 去重但保留順序
     seen = set()
     result = []
     for s in lines:
@@ -342,14 +315,7 @@ def normalize_symbols_from_text(text: str):
 
     return result
 
-
 def validate_and_normalize_group_json(data):
-    """
-    驗證匯入 JSON 格式，並正規化成：
-    {
-        "分類名稱": ["2330.TW", "2317.TW", ...]
-    }
-    """
     if not isinstance(data, dict) or not data:
         raise ValueError("JSON 格式錯誤：最外層必須是非空物件（dict）")
 
@@ -375,15 +341,7 @@ def validate_and_normalize_group_json(data):
 
     return validated
 
-
 def normalize_symbol_quick(input_text: str):
-    """
-    快速輸入股票代碼時，自動補上 .TW / .TWO
-    簡單規則：
-    - 已有 .TW / .TWO 直接沿用
-    - 純數字且以 3 / 6 / 8 開頭，預設視為上櫃 .TWO
-    - 其他預設 .TW
-    """
     s = str(input_text).strip().upper()
 
     if not s:
@@ -399,54 +357,26 @@ def normalize_symbol_quick(input_text: str):
 
     return s
 
-
 def set_next_selected_group(group_name: str):
-    """
-    避免 widget 已建立後直接修改 selected_group_editor
-    """
     st.session_state._next_selected_group = group_name
 
-
 def enter_edit_mode():
-    """
-    進入編輯模式
-    """
     st.session_state.editing_mode = True
 
-
 def leave_edit_mode():
-    """
-    離開編輯模式
-    """
     st.session_state.editing_mode = False
 
-
 def symbol_to_code(symbol: str) -> str:
-    """
-    2330.TW -> 2330
-    """
     return str(symbol).split(".")[0]
 
-
 def format_pct_plain(val) -> str:
-    """
-    格式化為 +5.5% / -0.5%
-    """
     try:
         num = float(val)
         return f"{num:+.1f}%"
     except Exception:
         return "-"
 
-
 def build_top3_html(valid_stock_stats):
-    """
-    依照漲跌幅排序，取前三名，並產生 HTML：
-    - 股票代碼 / 名稱：維持黑色
-    - 上漲百分比：紅字
-    - 下跌百分比：綠字
-    - 平盤百分比：黑字
-    """
     if not valid_stock_stats:
         return '<span style="color:#666666;">無可用資料</span>'
 
@@ -457,11 +387,11 @@ def build_top3_html(valid_stock_stats):
         pct = float(item["pct"])
 
         if pct > 0:
-            pct_color = "#cf1322"   # 漲：紅
+            pct_color = "#cf1322"
         elif pct < 0:
-            pct_color = "#389e0d"   # 跌：綠
+            pct_color = "#389e0d"
         else:
-            pct_color = "#333333"   # 平盤：深灰
+            pct_color = "#333333"
 
         code_text = escape(str(item["code"]))
         name_text = escape(str(item["name"]))
@@ -474,11 +404,7 @@ def build_top3_html(valid_stock_stats):
 
     return " | ".join(parts)
 
-
 def compact_name_list(names, max_show=3):
-    """
-    多個股票名稱縮短顯示
-    """
     names = [str(x).strip() for x in names if str(x).strip()]
     if not names:
         return "無"
@@ -488,10 +414,18 @@ def compact_name_list(names, max_show=3):
 
     return "、".join(names[:max_show]) + f" 等{len(names)}檔"
 
-
 # ===== Session State 初始化 =====
 if "auto_refresh_enabled" not in st.session_state:
     st.session_state.auto_refresh_enabled = False
+
+if "tg_push_enabled" not in st.session_state:
+    st.session_state.tg_push_enabled = False  # 新增：總推播開關，預設關閉
+
+if "scheduled_push_enabled" not in st.session_state:
+    st.session_state.scheduled_push_enabled = True  # 新增：定時推播開關，預設開啟
+
+if "processed_time_slots" not in st.session_state:
+    st.session_state.processed_time_slots = set()  # 新增：記錄今日已觸發過的時段
 
 if "stock_groups" not in st.session_state:
     st.session_state.stock_groups = load_stock_groups()
@@ -518,8 +452,9 @@ if "symbols_text_area" not in st.session_state:
 if "quick_add_symbol_input" not in st.session_state:
     st.session_state.quick_add_symbol_input = ""
 
+if "notified_stocks" not in st.session_state:
+    st.session_state.notified_stocks = set()
 
-# ===== 延後切換 selected_group（避免 widget state 錯誤）=====
 if "_next_selected_group" in st.session_state:
     pending_group = st.session_state._next_selected_group
     del st.session_state._next_selected_group
@@ -531,11 +466,7 @@ if "_next_selected_group" in st.session_state:
             st.session_state.stock_groups.get(pending_group, [])
         )
 
-
 def sync_editor_fields_from_selected_group():
-    """
-    當切換分類時，同步編輯欄位內容
-    """
     groups = st.session_state.stock_groups
     selected_group = st.session_state.selected_group_editor
 
@@ -551,12 +482,8 @@ def sync_editor_fields_from_selected_group():
     st.session_state.symbols_text_area = "\n".join(groups.get(selected_group, []))
     st.session_state.editing_mode = False
 
-
 # ===== 分組編輯鎖 =====
 def render_group_editor_lock():
-    """
-    Sidebar 的 PIN 驗證鎖
-    """
     st.sidebar.markdown("## 🔐 分組編輯鎖")
 
     if st.session_state.group_editor_unlocked:
@@ -583,11 +510,8 @@ def render_group_editor_lock():
         else:
             st.sidebar.error("PIN 錯誤")
 
-
 def render_stock_group_editor():
-    """
-    Sidebar 的股票分組編輯介面
-    """
+    # ...(省略未修改的分組編輯區塊，與原代碼一致)
     st.sidebar.markdown("## 🛠️ 股票分組編輯")
 
     groups = st.session_state.stock_groups
@@ -598,21 +522,17 @@ def render_stock_group_editor():
         groups = st.session_state.stock_groups
         group_names = list(groups.keys())
 
-    # 保證 selected_group 合法（在 widget 建立前處理）
     if st.session_state.selected_group_editor not in group_names:
         first_group = group_names[0]
         st.session_state.selected_group_editor = first_group
         st.session_state.rename_group_input = first_group
         st.session_state.symbols_text_area = "\n".join(groups.get(first_group, []))
 
-    # ===== 新增分類 =====
     with st.sidebar.expander("➕ 新增分類", expanded=False):
         new_group_name = st.text_input("分類名稱", key="new_group_name_input")
-
         if st.button("新增分類", key="add_group_btn", use_container_width=True):
             enter_edit_mode()
             name = new_group_name.strip()
-
             if not name:
                 st.sidebar.warning("請輸入分類名稱")
             elif name in groups:
@@ -621,12 +541,9 @@ def render_stock_group_editor():
                 groups[name] = []
                 st.session_state.stock_groups = groups
                 save_stock_groups(groups)
-
-                # 新增後切到新分類（用延後切換）
                 set_next_selected_group(name)
                 st.rerun()
 
-    # ===== 編輯既有分類 =====
     with st.sidebar.expander("📝 編輯分類", expanded=True):
         st.selectbox(
             "選擇分類",
@@ -636,90 +553,56 @@ def render_stock_group_editor():
         )
 
         selected_group = st.session_state.selected_group_editor
+        new_group_name = st.text_input("分類名稱（可修改）", key="rename_group_input", on_change=enter_edit_mode)
+        symbols_text = st.text_area("股票清單（每行一檔，或逗號分隔）", height=220, key="symbols_text_area", on_change=enter_edit_mode)
 
-        new_group_name = st.text_input(
-            "分類名稱（可修改）",
-            key="rename_group_input",
-            on_change=enter_edit_mode
-        )
-
-        symbols_text = st.text_area(
-            "股票清單（每行一檔，或逗號分隔）",
-            height=220,
-            key="symbols_text_area",
-            on_change=enter_edit_mode
-        )
-
-        # ===== 快速新增股票搜尋 =====
         st.markdown("### ⚡ 快速新增股票搜尋")
-
         quick_col1, quick_col2 = st.columns([2, 1])
-
         with quick_col1:
-            quick_input = st.text_input(
-                "輸入股票代碼或 ticker（例如 2330、2330.TW、6488.TWO）",
-                key="quick_add_symbol_input",
-                on_change=enter_edit_mode
-            )
-
+            quick_input = st.text_input("輸入股票代碼或 ticker", key="quick_add_symbol_input", on_change=enter_edit_mode)
         normalized_quick_symbol = normalize_symbol_quick(quick_input)
-
         if normalized_quick_symbol:
             st.caption(f"標準化代碼：{normalized_quick_symbol}")
 
         with quick_col2:
             if st.button("加入目前分類", key="quick_add_btn", use_container_width=True):
                 enter_edit_mode()
-
                 symbol = normalize_symbol_quick(quick_input)
-
                 if not symbol:
                     st.warning("請輸入股票代碼")
                 else:
                     current_list = groups.get(selected_group, [])
-
                     if symbol in current_list:
                         st.warning("此股票已存在於目前分類")
                     else:
                         current_list.append(symbol)
                         groups[selected_group] = current_list
-
                         st.session_state.stock_groups = groups
                         save_stock_groups(groups)
-
-                        # 同步更新文字區
                         st.session_state.symbols_text_area = "\n".join(current_list)
                         st.session_state.quick_add_symbol_input = ""
-
                         st.success(f"已加入 {symbol}")
                         st.rerun()
 
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("💾 儲存分類", key="save_group_btn", use_container_width=True):
                 new_name = new_group_name.strip()
-
                 if not new_name:
                     st.sidebar.warning("分類名稱不可為空")
                 elif new_name != selected_group and new_name in groups:
                     st.sidebar.warning("分類名稱已存在，請使用其他名稱")
                 else:
                     new_symbols = normalize_symbols_from_text(symbols_text)
-
                     updated = {}
                     for k, v in groups.items():
                         if k == selected_group:
                             updated[new_name] = new_symbols
                         else:
                             updated[k] = v
-
                     st.session_state.stock_groups = updated
                     save_stock_groups(updated)
-
                     leave_edit_mode()
-
-                    # 儲存後切到新名稱（用延後切換）
                     set_next_selected_group(new_name)
                     st.rerun()
 
@@ -731,31 +614,14 @@ def render_stock_group_editor():
                     groups.pop(selected_group, None)
                     st.session_state.stock_groups = groups
                     save_stock_groups(groups)
-
                     leave_edit_mode()
-
-                    # 刪除後切到第一個分類（用延後切換）
                     remaining = list(groups.keys())
                     set_next_selected_group(remaining[0])
                     st.rerun()
 
-    # ===== 備份 / 匯出 / 匯入 JSON =====
     with st.sidebar.expander("📦 備份 / 匯出 / 匯入 JSON", expanded=False):
-        export_json_str = json.dumps(
-            st.session_state.stock_groups,
-            ensure_ascii=False,
-            indent=2
-        )
-
-        st.download_button(
-            label="⬇️ 匯出目前分組 JSON",
-            data=export_json_str,
-            file_name="stock_groups.json",
-            mime="application/json",
-            key="download_groups_json_btn",
-            use_container_width=True
-        )
-
+        export_json_str = json.dumps(st.session_state.stock_groups, ensure_ascii=False, indent=2)
+        st.download_button(label="⬇️ 匯出目前分組 JSON", data=export_json_str, file_name="stock_groups.json", mime="application/json", key="download_groups_json_btn", use_container_width=True)
         if st.button("🗂️ 建立本地備份", key="create_local_backup_btn", use_container_width=True):
             try:
                 backup_file = save_backup_snapshot(st.session_state.stock_groups)
@@ -763,36 +629,22 @@ def render_stock_group_editor():
             except Exception as e:
                 st.sidebar.error(f"建立備份失敗：{e}")
 
-        uploaded_file = st.file_uploader(
-            "上傳股票分組 JSON",
-            type=["json"],
-            key="upload_groups_json_file"
-        )
-
+        uploaded_file = st.file_uploader("上傳股票分組 JSON", type=["json"], key="upload_groups_json_file")
         if uploaded_file is not None:
             st.caption("上傳後按下「匯入並覆蓋目前分組」才會生效")
-
             if st.button("📥 匯入並覆蓋目前分組", key="import_groups_json_btn", use_container_width=True):
                 try:
                     raw = uploaded_file.read()
                     data = json.loads(raw.decode("utf-8"))
                     validated = validate_and_normalize_group_json(data)
-
-                    # 匯入前先自動備份
                     save_backup_snapshot(st.session_state.stock_groups)
-
                     st.session_state.stock_groups = validated
                     save_stock_groups(validated)
-
                     leave_edit_mode()
-
-                    # 匯入後同步選取狀態（延後切換）
                     first_group = list(validated.keys())[0]
                     set_next_selected_group(first_group)
-
                     st.sidebar.success("JSON 匯入成功，已覆蓋目前股票分組")
                     st.rerun()
-
                 except Exception as e:
                     st.sidebar.error(f"JSON 匯入失敗：{e}")
 
@@ -804,32 +656,24 @@ def render_stock_group_editor():
         else:
             st.caption("目前沒有本地備份檔")
 
-    # ===== 還原預設 =====
     with st.sidebar.expander("♻️ 重設", expanded=False):
         if st.button("還原預設分組", key="reset_groups_btn", use_container_width=True):
             try:
                 save_backup_snapshot(st.session_state.stock_groups)
             except Exception:
                 pass
-
             st.session_state.stock_groups = copy.deepcopy(DEFAULT_STOCK_GROUPS)
             save_stock_groups(st.session_state.stock_groups)
-
             leave_edit_mode()
-
             first_group = list(st.session_state.stock_groups.keys())[0]
             set_next_selected_group(first_group)
-
             st.rerun()
 
-    # ===== 分組預覽 =====
     with st.sidebar.expander("👀 分組預覽", expanded=False):
         for g, symbols in st.session_state.stock_groups.items():
             st.markdown(f"**{g}**（{len(symbols)}檔）")
             st.caption(", ".join(symbols) if symbols else "（空）")
 
-
-# ===== 快取：降低重複請求 =====
 @st.cache_data(ttl=REFRESH_SEC)
 def download_stock_data(symbol):
     df = yf.download(
@@ -840,26 +684,18 @@ def download_stock_data(symbol):
     )
     return df
 
-
-# ===== 將 yfinance 回傳欄位整理成標準 OHLC =====
 def normalize_ohlc(df):
-    """
-    將 yfinance 可能回傳的 MultiIndex 或一般欄位，
-    統一整理成單層欄位：Open / High / Low / Close / Volume
-    """
     if df is None or df.empty:
         return pd.DataFrame()
 
     required_cols = ["Open", "High", "Low", "Close", "Volume"]
 
-    # 單層欄位
     if not isinstance(df.columns, pd.MultiIndex):
         cols = [c for c in required_cols if c in df.columns]
         if "Close" in cols and "High" in cols and "Low" in cols:
             return df[cols].copy()
         return pd.DataFrame()
 
-    # MultiIndex 欄位
     normalized = pd.DataFrame(index=df.index)
 
     for target_col in required_cols:
@@ -877,8 +713,6 @@ def normalize_ohlc(df):
 
     return pd.DataFrame()
 
-
-# ===== 取得價格：優先用 fast_info，抓不到就用最後收盤 =====
 def get_last_price(symbol, df):
     try:
         ticker = yf.Ticker(symbol)
@@ -888,14 +722,11 @@ def get_last_price(symbol, df):
     except Exception:
         pass
 
-    # fallback
     if not df.empty and "Close" in df.columns:
         return float(df["Close"].iloc[-1])
 
     raise ValueError("無法取得即時價格")
 
-
-# ===== 技術指標計算 =====
 def compute_indicators(df, price):
     if df is None or df.empty:
         raise ValueError("下載資料為空")
@@ -903,30 +734,31 @@ def compute_indicators(df, price):
     if len(df) < 20:
         raise ValueError("歷史資料不足（至少需要 20 筆）")
 
-    close = pd.to_numeric(df["Close"], errors="coerce")
-    low = pd.to_numeric(df["Low"], errors="coerce")
-    high = pd.to_numeric(df["High"], errors="coerce")
+    # 運用 squeeze() 確保多重索引或單欄 DataFrame 轉為乾淨的 pd.Series
+    close = pd.to_numeric(df["Close"].squeeze(), errors="coerce")
+    low = pd.to_numeric(df["Low"].squeeze(), errors="coerce")
+    high = pd.to_numeric(df["High"].squeeze(), errors="coerce")
 
     if close.isna().all() or low.isna().all() or high.isna().all():
         raise ValueError("OHLC 資料格式異常")
 
-    # ===== 漲跌 =====
-    yesterday_close = close.iloc[-2]
+    # 強制將昨收價轉為純 float
+    yesterday_close = float(close.iloc[-2])
     if pd.isna(yesterday_close) or yesterday_close == 0:
         raise ValueError("昨收資料異常")
 
-    change_pct = (price / yesterday_close - 1) * 100
+    price_val = float(price)
+    change_pct = float((price_val / yesterday_close - 1) * 100)
 
-    # ===== MA =====
     ma5 = float(close.tail(5).mean())
     ma10 = float(close.tail(10).mean())
     ma20 = float(close.tail(20).mean())
 
-    if price > ma5:
+    if price_val > ma5:
         ma_range = ">MA5"
-    elif ma5 >= price > ma10:
+    elif ma5 >= price_val > ma10:
         ma_range = "MA5~10"
-    elif ma10 >= price > ma20:
+    elif ma10 >= price_val > ma20:
         ma_range = "MA10~20"
     else:
         ma_range = "<MA20"
@@ -938,7 +770,6 @@ def compute_indicators(df, price):
     else:
         ma_trend = "糾結"
 
-    # ===== KD =====
     low_9 = low.rolling(9).min()
     high_9 = high.rolling(9).max()
     denominator = (high_9 - low_9).replace(0, pd.NA)
@@ -955,7 +786,6 @@ def compute_indicators(df, price):
     k_y = float(k.iloc[-2])
     d_y = float(d.iloc[-2])
 
-    # ===== KD 訊號 =====
     if k_y <= d_y and k_t > d_t:
         kd_signal = "黃金交叉"
     elif k_y >= d_y and k_t < d_t:
@@ -969,10 +799,9 @@ def compute_indicators(df, price):
     else:
         kd_signal = "-"
 
-    # ===== 跳空判斷 =====
     gap_signal = "-"
-    today_low = low.iloc[-1]
-    yesterday_high = high.iloc[-2]
+    today_low = float(low.iloc[-1])
+    yesterday_high = float(high.iloc[-2])
 
     if (
         ENABLE_GAP_SIGNAL
@@ -983,8 +812,8 @@ def compute_indicators(df, price):
         gap_signal = "跳空"
 
     return {
-        "price": round(float(price), 2),
-        "pct": round(float(change_pct), 2),
+        "price": round(price_val, 2),
+        "pct": round(change_pct, 2),       # 確保此處傳回的是標準 float
         "ma_range": ma_range,
         "ma_trend": ma_trend,
         "k": round(k_t, 1),
@@ -993,8 +822,6 @@ def compute_indicators(df, price):
         "gap_signal": gap_signal
     }
 
-
-# ===== 顯示格式 =====
 def format_color(val):
     if isinstance(val, (int, float)):
         if val > 0:
@@ -1004,7 +831,6 @@ def format_color(val):
         else:
             return f"{val:.2f}%"
     return val
-
 
 def format_k(val):
     if isinstance(val, (int, float)):
@@ -1016,14 +842,11 @@ def format_k(val):
             return f"🟢 {val:.1f}"
     return val
 
-
 def format_gap(val):
     if val == "跳空":
         return "🔴 跳空"
     return "-"
 
-
-# ===== 儀表板卡片 =====
 def render_summary_dashboard(group_up_summary, rise_threshold):
     st.markdown("### 📌 漲幅儀表板")
     st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
@@ -1034,13 +857,12 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
     for item in group_up_summary:
         group_name = escape(str(item["分類"]))
         anchor_id = make_anchor_id(group_name)
-
         hit_count = item["達標數"]
         total_count = item["總數"]
         up_count = item["上漲數"]
         down_count = item["下跌數"]
         hit_names_text = escape(str(item["達標股票名稱"]))
-        top3_html = item["前三名HTML"]   # 不能 escape，否則顏色會失效
+        top3_html = item["前三名HTML"]
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -1079,13 +901,12 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
     html_parts.append("</div></div>")
     st.markdown("".join(html_parts), unsafe_allow_html=True)
 
-
 # ==================== 主畫面開始 ====================
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
 st.markdown('<div id="dashboard-top"></div>', unsafe_allow_html=True)
 
-# ===== 手動更新與自動更新控制列 =====
-col1, col2 = st.columns(2)
+# ===== 更新右上方的四個開關區塊 =====
+col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 
 with col1:
     if st.button("🔄 手動更新即時資料 (清除快取)", use_container_width=True):
@@ -1094,17 +915,35 @@ with col1:
 
 with col2:
     auto_refresh = st.toggle(
-        "⏱️ 啟用自動更新 (每 30 秒)",
+        "⏱️ 啟用自動更新 (30秒)",
         value=st.session_state.auto_refresh_enabled
     )
-
     if auto_refresh != st.session_state.auto_refresh_enabled:
         st.session_state.auto_refresh_enabled = auto_refresh
         st.rerun()
 
+with col3:
+    tg_push = st.toggle(
+        "📲 Telegram 推送開關",
+        value=st.session_state.tg_push_enabled,
+        help="必須開啟此選項，機器人才會發送推播"
+    )
+    if tg_push != st.session_state.tg_push_enabled:
+        st.session_state.tg_push_enabled = tg_push
+        st.rerun()
+
+with col4:
+    sched_push = st.toggle(
+        "⏰ 定時推送模式",
+        value=st.session_state.scheduled_push_enabled,
+        help="開啟後，僅在 09:40, 10:00, 11:00, 12:00, 13:00 執行推播檢查"
+    )
+    if sched_push != st.session_state.scheduled_push_enabled:
+        st.session_state.scheduled_push_enabled = sched_push
+        st.rerun()
+
 gc.collect()
 
-# ===== 分組編輯鎖 =====
 render_group_editor_lock()
 
 if st.session_state.group_editor_unlocked:
@@ -1112,11 +951,9 @@ if st.session_state.group_editor_unlocked:
 else:
     st.sidebar.info("目前為唯讀模式：輸入 PIN 後才能修改股票分組")
 
-# ===== 台灣時間 =====
 tw_now = datetime.now(ZoneInfo("Asia/Taipei"))
 st.caption(f"更新時間：{tw_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# ===== 儀表板門檻設定 =====
 rise_threshold = st.slider(
     "儀表板漲幅達標門檻 (%)",
     min_value=5,
@@ -1125,7 +962,33 @@ rise_threshold = st.slider(
     step=1
 )
 
-# ===== 整理所有群組資料 =====
+# ===== 推送時間邏輯判斷 =====
+can_push_now = False
+current_schedule_key = None
+
+if st.session_state.tg_push_enabled:
+    if st.session_state.scheduled_push_enabled:
+        # 將現在時間換算成當日分鐘數
+        current_minutes = tw_now.hour * 60 + tw_now.minute
+        # 定義指定的推送時間 (轉換成分鐘)
+        TARGET_MINUTES = [9*60+40, 10*60, 11*60, 12*60, 13*60]
+        
+        # 找出今日已經達到或超過的時間點
+        passed_targets = [t for t in TARGET_MINUTES if current_minutes >= t]
+        if passed_targets:
+            # 取最近一個已經通過的時段
+            latest_target = passed_targets[-1]
+            today_str = tw_now.strftime("%Y%m%d")
+            # 建立該時段的專屬 Key，例如 slot_20260608_600
+            current_schedule_key = f"slot_{today_str}_{latest_target}"
+            
+            # 如果這個時段今天還沒被推播過，就可以放行
+            if current_schedule_key not in st.session_state.processed_time_slots:
+                can_push_now = True
+    else:
+        # 如果定時模式關閉，就代表「隨時都可以推播（只要條件符合）」
+        can_push_now = True
+
 group_tables = {}
 group_up_summary = []
 
@@ -1137,7 +1000,6 @@ for group_name, stocks in st.session_state.stock_groups.items():
     flat_count = 0
     error_count = 0
 
-    # 儀表板摘要需要的中間資料
     valid_stock_stats = []
     hit_names = []
 
@@ -1153,6 +1015,29 @@ for group_name, stocks in st.session_state.stock_groups.items():
             stock_name = get_stock_name(symbol)
             data = compute_indicators(df, price)
 
+            # ===== 執行推播檢查 =====
+            is_high_gain = data["pct"] >= 1
+            has_kd_signal = data["kd_signal"] in ["黃金交叉", "即將黃金交叉"]
+            has_gap_signal = data["gap_signal"] == "跳空"
+            
+            if is_high_gain and (has_kd_signal or has_gap_signal):
+                today_str = tw_now.strftime("%Y-%m-%d")
+                # 防呆：確保同一檔股票一天最多只通知一次
+                notify_key = f"{symbol}_{today_str}"
+                
+                # 若總開關與時間條件允許，且今日未推播過該檔股票，則發送
+                if can_push_now and (notify_key not in st.session_state.notified_stocks):
+                    msg = (
+                        f"🔔 <b>強勢股達標通知：{stock_name} ({symbol})</b>\n\n"
+                        f"📈 價格：{data['price']}\n"
+                        f"🔥 漲幅：+{data['pct']}%\n"
+                        f"📊 KD訊號：{data['kd_signal']}\n"
+                        f"🚀 跳空訊號：{data['gap_signal']}"
+                    )
+                    send_telegram_message(msg)
+                    st.session_state.notified_stocks.add(notify_key)
+            # =======================
+
             if data["pct"] >= rise_threshold:
                 hit_count += 1
                 hit_names.append(stock_name)
@@ -1164,7 +1049,6 @@ for group_name, stocks in st.session_state.stock_groups.items():
             else:
                 flat_count += 1
 
-            # 存給儀表板前三名用
             valid_stock_stats.append({
                 "symbol": symbol,
                 "code": symbol_to_code(symbol),
@@ -1202,7 +1086,6 @@ for group_name, stocks in st.session_state.stock_groups.items():
                 "跳空訊號": str(e)
             })
 
-    # 整理儀表板顯示字串
     hit_names_text = compact_name_list(hit_names, max_show=4)
     top3_html = build_top3_html(valid_stock_stats)
 
@@ -1231,7 +1114,10 @@ for group_name, stocks in st.session_state.stock_groups.items():
         "總數": len(stocks)
     })
 
-# ===== 顯示摘要與表格 =====
+# 如果這是一次由「定時模式」觸發的檢查，掃描完所有股票後，將該時段標記為已處理
+if can_push_now and st.session_state.scheduled_push_enabled and current_schedule_key:
+    st.session_state.processed_time_slots.add(current_schedule_key)
+
 render_summary_dashboard(group_up_summary, rise_threshold)
 st.divider()
 
@@ -1274,15 +1160,13 @@ for group_name, info in group_tables.items():
             "代碼": st.column_config.LinkColumn(
                 "代碼",
                 help="點擊前往台股 Yahoo",
-                display_text=r"https://tw\.stock\.yahoo\.com/quote/(.*)/technical-analysis"
+                display_text=r"https://tw\.stock\.yahoo\.com/quote/(.*)"
             ),
             "股票名稱": st.column_config.TextColumn("股票名稱")
         }
     )
     st.markdown('<div style="margin-bottom: 10px;"></div>', unsafe_allow_html=True)
 
-# ===== 底部的自動刷新觸發判定 =====
-# 為避免編輯中被重刷，只要分組編輯已解鎖 或 editing_mode=True 就暫停自動更新
 if (
     st.session_state.auto_refresh_enabled
     and not st.session_state.group_editor_unlocked
