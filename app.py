@@ -819,7 +819,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
             data = compute_indicators(df, price)
 
             # ===== 執行推播檢查 =====
-            is_high_gain = data["pct"] >= 1
+            is_high_gain = data["pct"] >= 4
             has_kd_signal = data["kd_signal"] in ["黃金交叉", "即將黃金交叉"]
             has_gap_signal = data["gap_signal"] == "跳空"
             
