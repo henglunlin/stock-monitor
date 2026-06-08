@@ -229,7 +229,7 @@ def yahoo_quote_url(symbol: str) -> str:
     """
     產生台股 Yahoo 個股頁連結
     """
-    return f"https://tw.stock.yahoo.com/quote/{symbol}"
+    return f"https://tw.stock.yahoo.com/quote/{symbol}/technical-analysis"
 
 
 @st.cache_data(ttl=86400)
