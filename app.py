@@ -442,6 +442,42 @@ def format_pct_plain(val) -> str:
         return "-"
 
 
+def build_top3_html(valid_stock_stats):
+    """
+    依照漲跌幅排序，取前三名，並產生 HTML：
+    - 股票代碼 / 名稱：維持黑色
+    - 上漲百分比：紅字
+    - 下跌百分比：綠字
+    - 平盤百分比：黑字
+    """
+    if not valid_stock_stats:
+        return '<span style="color:#666666;">無可用資料</span>'
+
+    top3_sorted = sorted(valid_stock_stats, key=lambda x: x["pct"], reverse=True)[:3]
+
+    parts = []
+    for item in top3_sorted:
+        pct = float(item["pct"])
+
+        if pct > 0:
+            pct_color = "#cf1322"   # 漲：紅
+        elif pct < 0:
+            pct_color = "#389e0d"   # 跌：綠
+        else:
+            pct_color = "#333333"   # 平盤：深灰
+
+        code_text = escape(str(item["code"]))
+        name_text = escape(str(item["name"]))
+        pct_text = f"{pct:+.1f}%"
+
+        parts.append(
+            f'<span style="color:#000000;">{code_text} {name_text} </span>'
+            f'<span style="color:{pct_color}; font-weight:600;">{pct_text}</span>'
+        )
+
+    return " | ".join(parts)
+
+
 def compact_name_list(names, max_show=3):
     """
     多個股票名稱縮短顯示
@@ -1007,7 +1043,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         up_count = item["上漲數"]
         down_count = item["下跌數"]
         hit_names_text = escape(str(item["達標股票名稱"]))
-        top3_html = item["前三名HTML"]   # ✅ 正確
+        top3_html = item["前三名HTML"]   # 不能 escape，否則顏色會失效
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -1036,7 +1072,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             f'🔴 一般上漲：<b>{up_count}</b><br>'
             f'🟢 下跌：<b>{down_count}</b>'
             f'</div>'
-            f'<div class="dashboard-extra">▶ {top3_html}</div>'  # ✅ 修正
+            f'<div class="dashboard-extra">▶ {top3_html}</div>'
             f'</div>'
             f'</a>'
         )
@@ -1104,7 +1140,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
     flat_count = 0
     error_count = 0
 
-    # 新增：儀表板摘要需要的中間資料
+    # 儀表板摘要需要的中間資料
     valid_stock_stats = []
     hit_names = []
 
@@ -1131,7 +1167,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
             else:
                 flat_count += 1
 
-            # 新增：存給儀表板前三名用
+            # 存給儀表板前三名用
             valid_stock_stats.append({
                 "symbol": symbol,
                 "code": symbol_to_code(symbol),
@@ -1169,9 +1205,8 @@ for group_name, stocks in st.session_state.stock_groups.items():
                 "跳空訊號": str(e)
             })
 
-    # 新增：整理儀表板顯示字串
+    # 整理儀表板顯示字串
     hit_names_text = compact_name_list(hit_names, max_show=4)
-
     top3_html = build_top3_html(valid_stock_stats)
 
     df_table = pd.DataFrame(rows)
