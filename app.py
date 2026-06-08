@@ -21,6 +21,7 @@ ENABLE_GAP_SIGNAL = True
 GROUP_EDIT_PIN = "1219"
 GROUPS_FILE = "stock_groups.json"
 BACKUP_DIR = "backups"
+STOCK_NAME_FILE = "TWstocklistname.txt"
 
 DEFAULT_STOCK_GROUPS = {
     "權值股": [
@@ -49,54 +50,6 @@ DEFAULT_STOCK_GROUPS = {
         "4979.TWO", "3163.TWO", "4977.TW",
         "3081.TWO", "3450.TW", "6442.TW"
     ],
-}
-
-# ===== 台股中文名稱優先對照表（可持續擴充）=====
-TW_STOCK_NAME_MAP = {
-    "2330.TW": "台積電",
-    "2449.TW": "京元電子",
-    "2317.TW": "鴻海",
-    "3711.TW": "日月光投控",
-    "6488.TWO": "環球晶",
-    "2327.TW": "國巨",
-    "6176.TW": "瑞儀",
-    "2303.TW": "聯電",
-    "5347.TWO": "世界",
-    "3008.TW": "大立光",
-    "3035.TW": "智原",
-    "4566.TW": "時碩工業",
-    "6456.TW": "GIS-KY",
-    "6271.TW": "同欣電",
-    "6290.TWO": "良維",
-    "4919.TW": "新唐",
-    "6285.TW": "啟碁",
-    "2313.TW": "華通",
-    "4958.TW": "臻鼎-KY",
-    "3037.TW": "欣興",
-    "8046.TW": "南電",
-    "3189.TW": "景碩",
-    "8996.TW": "高力",
-    "5439.TWO": "高技",
-    "8358.TWO": "金居",
-    "6770.TW": "力積電",
-    "2408.TW": "南亞科",
-    "2344.TW": "華邦電",
-    "8271.TW": "宇瞻",
-    "4967.TW": "十銓",
-    "3260.TWO": "威剛",
-    "2451.TW": "創見",
-    "2383.TW": "台光電",
-    "6274.TWO": "台燿",
-    "6213.TW": "聯茂",
-    "8039.TW": "台虹",
-    "4979.TWO": "華星光",
-    "3163.TWO": "波若威",
-    "4977.TW": "眾達-KY",
-    "3081.TWO": "聯亞",
-    "3450.TW": "聯鈞",
-    "6442.TW": "光聖",
-    "00981A.TW": "00981A",
-    "4749.TWO": "4749",
 }
 
 # ===== CSS =====
@@ -280,15 +233,59 @@ def yahoo_quote_url(symbol: str) -> str:
 
 
 @st.cache_data(ttl=86400)
+def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
+    """
+    從本地 TWstocklistname.txt 載入股票名稱對照表
+    格式支援：
+    1101.TW    台泥
+    2330.TW    台積電
+    （tab 或多空白分隔皆可）
+    """
+    name_map = {}
+
+    if not os.path.exists(file_path):
+        return name_map
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            # 去掉 BOM / 全形空白
+            line = line.replace("\ufeff", "").replace("\u3000", "")
+
+            if "\t" in line:
+                parts = line.split("\t")
+                parts = [p.strip() for p in parts if p.strip()]
+                if len(parts) >= 2:
+                    symbol = parts[0].upper()
+                    name = parts[1].strip()
+                    name_map[symbol] = name
+                    continue
+
+            # fallback：多空白切兩欄
+            m = re.match(r"^([^\s]+)\s+(.+)$", line)
+            if m:
+                symbol = m.group(1).strip().upper()
+                name = m.group(2).strip()
+                name_map[symbol] = name
+
+    return name_map
+
+
+@st.cache_data(ttl=86400)
 def get_stock_name(symbol: str) -> str:
     """
     取得股票名稱：
-    1. 先吃本地中文對照表（台股中文名稱優先）
+    1. 先吃本地 txt 對照表（中文名稱優先）
     2. 再用 yfinance 抓 shortName / longName / displayName / name
     3. 最後 fallback 為代碼主體
     """
-    if symbol in TW_STOCK_NAME_MAP:
-        return TW_STOCK_NAME_MAP[symbol]
+    name_map = load_stock_name_map(STOCK_NAME_FILE)
+
+    if symbol in name_map:
+        return name_map[symbol]
 
     try:
         ticker = yf.Ticker(symbol)
