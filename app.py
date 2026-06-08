@@ -441,40 +441,6 @@ def format_pct_plain(val) -> str:
     except Exception:
         return "-"
 
-def build_top3_html(valid_stock_stats):
-    """
-    依照漲跌幅排序，取前三名，並產生 HTML：
-    - 股票代碼 / 名稱：維持黑色
-    - 上漲百分比：紅字
-    - 下跌百分比：綠字
-    - 平盤百分比：黑字
-    """
-    if not valid_stock_stats:
-        return '<span style="color:#666666;">無可用資料</span>'
-
-    top3_sorted = sorted(valid_stock_stats, key=lambda x: x["pct"], reverse=True)[:3]
-
-    parts = []
-    for item in top3_sorted:
-        pct = float(item["pct"])
-        if pct > 0:
-            pct_color = "#cf1322"   # 紅
-        elif pct < 0:
-            pct_color = "#389e0d"   # 綠
-        else:
-            pct_color = "#333333"   # 黑 / 深灰
-
-        code_text = escape(str(item["code"]))
-        name_text = escape(str(item["name"]))
-        pct_text = f"{pct:+.1f}%"
-
-        parts.append(
-            f'<span style="color:#000000;">{code_text} {name_text} </span>'
-            f'<span style="color:{pct_color}; font-weight:600;">{pct_text}</span>'
-        )
-
-    return " | ".join(parts)		
-		
 
 def compact_name_list(names, max_show=3):
     """
@@ -1041,7 +1007,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         up_count = item["上漲數"]
         down_count = item["下跌數"]
         hit_names_text = escape(str(item["達標股票名稱"]))
-        top3_text = escape(str(item["前三名摘要"]))
+        top3_text = escape(str(item["前三名HTML]))
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -1070,7 +1036,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             f'🔴 一般上漲：<b>{up_count}</b><br>'
             f'🟢 下跌：<b>{down_count}</b>'
             f'</div>'
-            f'<div class="dashboard-extra">▶ {top3_text}</div>'
+            f'<div class="dashboard-extra">▶ {top3_htm}</div>'
             f'</div>'
             f'</a>'
         )
@@ -1207,14 +1173,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
     # 新增：整理儀表板顯示字串
     hit_names_text = compact_name_list(hit_names, max_show=4)
 
-    top3_sorted = sorted(valid_stock_stats, key=lambda x: x["pct"], reverse=True)[:3]
-    if top3_sorted:
-        top3_text = " | ".join(
-            f"{item['code']} {item['name']} {format_pct_plain(item['pct'])}"
-            for item in top3_sorted
-        )
-    else:
-        top3_text = "無可用資料"
+    top3_html = build_top3_html(valid_stock_stats)
 
     df_table = pd.DataFrame(rows)
     display_df = df_table.copy()
@@ -1233,7 +1192,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
         "分類": group_name,
         "達標數": hit_count,
         "達標股票名稱": hit_names_text,
-        "前三名摘要": top3_text,
+        "前三名HTML": top3_html,
         "上漲數": up_count,
         "下跌數": down_count,
         "平盤數": flat_count,
