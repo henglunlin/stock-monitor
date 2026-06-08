@@ -1274,7 +1274,7 @@ for group_name, info in group_tables.items():
             "代碼": st.column_config.LinkColumn(
                 "代碼",
                 help="點擊前往台股 Yahoo",
-                display_text=r"https://tw\.stock\.yahoo\.com/quote/(.*)"
+                display_text=r"https://tw\.stock\.yahoo\.com/quote/(.*)/technical-analysis"
             ),
             "股票名稱": st.column_config.TextColumn("股票名稱")
         }
