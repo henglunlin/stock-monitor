@@ -113,16 +113,16 @@ st.markdown("""
 /* 固定 4 欄 */
 .dashboard-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(220px, 1fr));
+    grid-template-columns: repeat(4, minmax(260px, 1fr));
     gap: 12px;
-    min-width: 940px;
+    min-width: 1120px;
 }
 
 /* 卡片 */
 .dashboard-card {
     border-radius: 12px;
     padding: 14px 16px;
-    min-height: 125px;
+    min-height: 180px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     box-sizing: border-box;
 }
@@ -154,6 +154,17 @@ st.markdown("""
     font-size: 14px;
     line-height: 1.7;
     color: #000000 !important;
+}
+
+/* 儀表板補充資訊 */
+.dashboard-extra {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #000000 !important;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0,0,0,0.12);
+    word-break: break-word;
 }
 
 /* 儀表板連結避免吃到 theme 顏色 */
@@ -411,6 +422,38 @@ def leave_edit_mode():
     離開編輯模式
     """
     st.session_state.editing_mode = False
+
+
+def symbol_to_code(symbol: str) -> str:
+    """
+    2330.TW -> 2330
+    """
+    return str(symbol).split(".")[0]
+
+
+def format_pct_plain(val) -> str:
+    """
+    格式化為 +5.5% / -0.5%
+    """
+    try:
+        num = float(val)
+        return f"{num:+.1f}%"
+    except Exception:
+        return "-"
+
+
+def compact_name_list(names, max_show=3):
+    """
+    多個股票名稱縮短顯示
+    """
+    names = [str(x).strip() for x in names if str(x).strip()]
+    if not names:
+        return "無"
+
+    if len(names) <= max_show:
+        return "、".join(names)
+
+    return "、".join(names[:max_show]) + f" 等{len(names)}檔"
 
 
 # ===== Session State 初始化 =====
@@ -963,6 +1006,8 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         total_count = item["總數"]
         up_count = item["上漲數"]
         down_count = item["下跌數"]
+        hit_names_text = escape(str(item["達標股票名稱"]))
+        top3_text = escape(str(item["前三名摘要"]))
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -987,10 +1032,11 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             f'<div class="dashboard-main" style="color:{accent_color};">{hit_count} / {total_count}</div>'
             f'<div class="dashboard-sub">漲幅達標比例（≥{rise_threshold}%）：{hit_ratio:.0f}%</div>'
             f'<div class="dashboard-detail">'
-            f'🎯 達標：<b>{hit_count}</b><br>'
+            f'🎯 達標：<b>{hit_count}</b> 檔（{hit_names_text}）<br>'
             f'🔴 一般上漲：<b>{up_count}</b><br>'
             f'🟢 下跌：<b>{down_count}</b>'
             f'</div>'
+            f'<div class="dashboard-extra">▶ {top3_text}</div>'
             f'</div>'
             f'</a>'
         )
@@ -1059,6 +1105,10 @@ for group_name, stocks in st.session_state.stock_groups.items():
     flat_count = 0
     error_count = 0
 
+    # 新增：儀表板摘要需要的中間資料
+    valid_stock_stats = []
+    hit_names = []
+
     for symbol in stocks:
         try:
             raw_df = download_stock_data(symbol)
@@ -1073,6 +1123,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
 
             if data["pct"] >= rise_threshold:
                 hit_count += 1
+                hit_names.append(stock_name)
 
             if data["pct"] > 0:
                 up_count += 1
@@ -1080,6 +1131,14 @@ for group_name, stocks in st.session_state.stock_groups.items():
                 down_count += 1
             else:
                 flat_count += 1
+
+            # 新增：存給儀表板前三名用
+            valid_stock_stats.append({
+                "symbol": symbol,
+                "code": symbol_to_code(symbol),
+                "name": stock_name,
+                "pct": float(data["pct"])
+            })
 
             rows.append({
                 "代碼": symbol,
@@ -1111,6 +1170,18 @@ for group_name, stocks in st.session_state.stock_groups.items():
                 "跳空訊號": str(e)
             })
 
+    # 新增：整理儀表板顯示字串
+    hit_names_text = compact_name_list(hit_names, max_show=4)
+
+    top3_sorted = sorted(valid_stock_stats, key=lambda x: x["pct"], reverse=True)[:3]
+    if top3_sorted:
+        top3_text = " | ".join(
+            f"{item['code']} {item['name']} {format_pct_plain(item['pct'])}"
+            for item in top3_sorted
+        )
+    else:
+        top3_text = "無可用資料"
+
     df_table = pd.DataFrame(rows)
     display_df = df_table.copy()
 
@@ -1127,6 +1198,8 @@ for group_name, stocks in st.session_state.stock_groups.items():
     group_up_summary.append({
         "分類": group_name,
         "達標數": hit_count,
+        "達標股票名稱": hit_names_text,
+        "前三名摘要": top3_text,
         "上漲數": up_count,
         "下跌數": down_count,
         "平盤數": flat_count,
