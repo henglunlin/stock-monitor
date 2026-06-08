@@ -1007,7 +1007,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         up_count = item["上漲數"]
         down_count = item["下跌數"]
         hit_names_text = escape(str(item["達標股票名稱"]))
-        top3_text = escape(str(item["前三名HTML"]))
+        top3_html = item["前三名HTML"]   # ✅ 正確
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
@@ -1036,7 +1036,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
             f'🔴 一般上漲：<b>{up_count}</b><br>'
             f'🟢 下跌：<b>{down_count}</b>'
             f'</div>'
-            f'<div class="dashboard-extra">▶ {top3_htm}</div>'
+            f'<div class="dashboard-extra">▶ {top3_html}</div>'  # ✅ 修正
             f'</div>'
             f'</a>'
         )
@@ -1044,8 +1044,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         html_parts.append(card_html)
 
     html_parts.append("</div></div>")
-    cards_html = "".join(html_parts)
-    st.markdown(cards_html, unsafe_allow_html=True)
+    st.markdown("".join(html_parts), unsafe_allow_html=True)
 
 
 # ==================== 主畫面開始 ====================
