@@ -1025,7 +1025,7 @@ def format_gap(val):
 
 # ===== 儀表板卡片 =====
 def render_summary_dashboard(group_up_summary, rise_threshold):
-    st.markdown("### 📌 各分類漲幅達標儀表板")
+    st.markdown("### 📌 漲幅儀表板")
     st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
 
     html_parts = []
