@@ -51,10 +51,55 @@ DEFAULT_STOCK_GROUPS = {
     ],
 }
 
+# ===== 台股中文名稱優先對照表（可持續擴充）=====
+TW_STOCK_NAME_MAP = {
+    "2330.TW": "台積電",
+    "2449.TW": "京元電子",
+    "2317.TW": "鴻海",
+    "3711.TW": "日月光投控",
+    "6488.TWO": "環球晶",
+    "2327.TW": "國巨",
+    "6176.TW": "瑞儀",
+    "2303.TW": "聯電",
+    "5347.TWO": "世界",
+    "3008.TW": "大立光",
+    "3035.TW": "智原",
+    "4566.TW": "時碩工業",
+    "6456.TW": "GIS-KY",
+    "6271.TW": "同欣電",
+    "6290.TWO": "良維",
+    "4919.TW": "新唐",
+    "6285.TW": "啟碁",
+    "2313.TW": "華通",
+    "4958.TW": "臻鼎-KY",
+    "3037.TW": "欣興",
+    "8046.TW": "南電",
+    "3189.TW": "景碩",
+    "8996.TW": "高力",
+    "5439.TWO": "高技",
+    "8358.TWO": "金居",
+    "6770.TW": "力積電",
+    "2408.TW": "南亞科",
+    "2344.TW": "華邦電",
+    "8271.TW": "宇瞻",
+    "4967.TW": "十銓",
+    "3260.TWO": "威剛",
+    "2451.TW": "創見",
+    "2383.TW": "台光電",
+    "6274.TWO": "台燿",
+    "6213.TW": "聯茂",
+    "8039.TW": "台虹",
+    "4979.TWO": "華星光",
+    "3163.TWO": "波若威",
+    "4977.TW": "眾達-KY",
+    "3081.TWO": "聯亞",
+    "3450.TW": "聯鈞",
+    "6442.TW": "光聖",
+    "00981A.TW": "00981A",
+    "4749.TWO": "4749",
+}
+
 # ===== CSS =====
-# 只調整儀表板內字色：
-# - title / sub / detail 固定黑色
-# - main 保留由 inline style 的 accent_color 決定
 st.markdown("""
 <style>
 /* 儀表板外層：手機可左右滑動 */
@@ -119,6 +164,24 @@ st.markdown("""
 .dashboard-link:active {
     text-decoration: none !important;
     color: inherit !important;
+}
+
+/* 回到儀表板按鈕 */
+.back-to-dashboard-btn {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid #999;
+    background: #f5f5f5;
+    color: #000 !important;
+    text-decoration: none !important;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.back-to-dashboard-btn:hover {
+    background: #eaeaea;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -203,6 +266,40 @@ def yahoo_quote_url(symbol: str) -> str:
     產生台股 Yahoo 個股頁連結
     """
     return f"https://tw.stock.yahoo.com/quote/{symbol}"
+
+
+@st.cache_data(ttl=86400)
+def get_stock_name(symbol: str) -> str:
+    """
+    取得股票名稱：
+    1. 先吃本地中文對照表（台股中文名稱優先）
+    2. 再用 yfinance 抓 shortName / longName / displayName / name
+    3. 最後 fallback 為代碼主體
+    """
+    if symbol in TW_STOCK_NAME_MAP:
+        return TW_STOCK_NAME_MAP[symbol]
+
+    try:
+        ticker = yf.Ticker(symbol)
+
+        info = {}
+        try:
+            info = ticker.get_info()
+        except Exception:
+            try:
+                info = ticker.info
+            except Exception:
+                info = {}
+
+        for key in ["shortName", "longName", "displayName", "name"]:
+            val = info.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+    except Exception:
+        pass
+
+    return symbol.split(".")[0]
 
 
 def normalize_symbols_from_text(text: str):
@@ -851,10 +948,6 @@ def format_gap(val):
 
 
 # ===== 儀表板卡片 =====
-# 這裡已修正：
-# - title/sub/detail 固定黑色（靠 CSS）
-# - main 保留 accent_color
-# - anchor 連結修正，不會再把 #group-xxx 顯示在畫面上
 def render_summary_dashboard(group_up_summary, rise_threshold):
     st.markdown("### 📌 各分類漲幅達標儀表板")
     st.caption(f"目前儀表板統計門檻：漲幅 ≥ {rise_threshold}%")
@@ -911,6 +1004,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
 
 # ==================== 主畫面開始 ====================
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
+st.markdown('<div id="dashboard-top"></div>', unsafe_allow_html=True)
 
 # ===== 手動更新與自動更新控制列 =====
 col1, col2 = st.columns(2)
@@ -974,6 +1068,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
                 raise ValueError("無法解析 yfinance 欄位格式")
 
             price = get_last_price(symbol, df)
+            stock_name = get_stock_name(symbol)
             data = compute_indicators(df, price)
 
             if data["pct"] >= rise_threshold:
@@ -989,6 +1084,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
             rows.append({
                 "代碼": symbol,
                 "代碼網址": yahoo_quote_url(symbol),
+                "股票名稱": stock_name,
                 "價格": f"{data['price']:.2f}",
                 "漲跌%": data["pct"],
                 "MA位置": data["ma_range"],
@@ -1004,6 +1100,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
             rows.append({
                 "代碼": symbol,
                 "代碼網址": "",
+                "股票名稱": get_stock_name(symbol),
                 "價格": "錯誤",
                 "漲跌%": "-",
                 "MA位置": "-",
@@ -1048,21 +1145,41 @@ for group_name, info in group_tables.items():
         unsafe_allow_html=True
     )
 
-    st.subheader(f"【{group_name}】({info['count']}檔)")
+    header_col1, header_col2 = st.columns([8, 2])
+
+    with header_col1:
+        st.subheader(f"【{group_name}】({info['count']}檔)")
+
+    with header_col2:
+        st.markdown(
+            """
+            <div style="text-align:right; padding-top:0.4rem;">
+                <a href="#dashboard-top" class="back-to-dashboard-btn">⬆ 回到儀表板</a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
     table_df = info["table"].copy()
 
     if not table_df.empty and "代碼網址" in table_df.columns:
         table_df["代碼"] = table_df["代碼網址"]
 
+    display_columns = [
+        "代碼", "股票名稱", "價格", "漲跌%", "MA位置",
+        "MA排列", "K值", "D值", "KD訊號", "跳空訊號"
+    ]
+
     st.dataframe(
-        table_df.drop(columns=["代碼網址"]),
+        table_df[display_columns],
         use_container_width=True,
         column_config={
             "代碼": st.column_config.LinkColumn(
                 "代碼",
                 help="點擊前往台股 Yahoo",
                 display_text=r"https://tw\.stock\.yahoo\.com/quote/(.*)"
-            )
+            ),
+            "股票名稱": st.column_config.TextColumn("股票名稱")
         }
     )
     st.markdown('<div style="margin-bottom: 10px;"></div>', unsafe_allow_html=True)
