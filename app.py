@@ -1007,7 +1007,7 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
         up_count = item["上漲數"]
         down_count = item["下跌數"]
         hit_names_text = escape(str(item["達標股票名稱"]))
-        top3_text = escape(str(item["前三名HTML]))
+        top3_text = escape(str(item["前三名HTML"]))
 
         hit_ratio = (hit_count / total_count * 100) if total_count > 0 else 0
 
