@@ -126,6 +126,7 @@ def send_telegram_message(text: str):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "HTML"
+        "disable_web_page_preview": True,
     }
     try:
         res = requests.post(url, json=payload, timeout=5)
