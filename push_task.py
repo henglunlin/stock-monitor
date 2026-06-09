@@ -259,8 +259,9 @@ def main():
                     yahoo_url = f"https://tw.stock.yahoo.com/quote/{base_symbol}"
                     symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
 
+                    # 在這裡加入了 【測試】 字眼
                     msg = (
-                        f"🔔 <b>強勢股達標通知：{stock_name} ({symbol_link})</b>\n\n"
+                        f"🔔 <b>【測試】強勢股達標通知：{stock_name} ({symbol_link})</b>\n\n"
                         f"📈 價格：{data['price']}\n"
                         f"🔥 漲幅：+{data['pct']}%\n"
                         f"📊 KD訊號：{data['kd_signal']}\n"
