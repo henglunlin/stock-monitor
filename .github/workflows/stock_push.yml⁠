@@ -1,4 +1,4 @@
-name: Stock Monitor Scheduled Push
+name: Stock Monitor Scheduled Push #test
 on:
  schedule:
    # 1. 台灣時間 09:40 (UTC 01:40)
