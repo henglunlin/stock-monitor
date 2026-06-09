@@ -12,7 +12,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 GROUPS_FILE = "stock_groups.json"
-STOCK_NAME_FILE = "TWstocklistname.txt"
+STOCK_NAME_FILE = "TWstocklistname2.txt"
 ENABLE_GAP_SIGNAL = True
 
 DEFAULT_STOCK_GROUPS = {
