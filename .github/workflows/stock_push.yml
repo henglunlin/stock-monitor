@@ -26,4 +26,4 @@ jobs:
        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
      run: |
-       python push_task.py # 替換成您實際啟動發送訊息的腳本指令
+       python push_task.py
