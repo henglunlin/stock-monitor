@@ -824,12 +824,15 @@ for group_name, stocks in st.session_state.stock_groups.items():
             has_gap_signal = data["gap_signal"] == "跳空"
             
             if is_high_gain or (has_kd_signal or has_gap_signal):
+                base_symbol = symbol.split('.')[0]
+                yahoo_url = f"https://tw.stock.yahoo.com/quote/{base_symbol}"
+                symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
                 today_str = tw_now.strftime("%Y-%m-%d")
                 notify_key = f"{symbol}_{today_str}"
                 
                 if can_push_now and (notify_key not in st.session_state.notified_stocks):
                     msg = (
-                        f"🔔 <b>強勢股達標通知：{stock_name} ({symbol})</b>\n\n"
+                        f"🔔 <b>強勢股達標通知：{stock_name} ({symbol_link})</b>\n\n"
                         f"📈 價格：{data['price']}\n"
                         f"🔥 漲幅：+{data['pct']}%\n"
                         f"📊 KD訊號：{data['kd_signal']}\n"
