@@ -24,24 +24,31 @@ jobs:
             pip install -r requirements.txt
           fi
 
-      - name: Run script (time control)
+      - name: Run script (weekday + time control)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          # UTC 時間
           HOUR=$(date -u +%H)
+          WEEKDAY=$(date -u +%u)  # 1=Monday, 7=Sunday
 
-          if [ "$HOUR" -ge 1 ] && [ "$HOUR" -le 5 ]; then
-            echo "✅ in trading time"
+          echo "UTC HOUR=$HOUR, WEEKDAY=$WEEKDAY"
+
+          # ✅ 平日 + 指定時間 (10,11 UTC = 台灣18,19)
+          if [ "$WEEKDAY" -ge 1 ] && [ "$WEEKDAY" -le 5 ] && \
+             ( [ "$HOUR" -eq 10 ] || [ "$HOUR" -eq 11 ] ); then
+
+            echo "✅ match condition → run script"
             python3 push_task.py
+
           else
-            echo "⏰ skip"
+            echo "⏰ skip (not target time)"
           fi
 
-      - name: Wait 40 seconds (for testing)
-        run: sleep 40
+      - name: Wait 40 seconds (testing loop)
+        run: sleep 60
 
-      # ✅ 最重要：正確 API + GH_PAT + ref
       - name: Trigger next run
         run: |
           echo "Trigger next run..."
