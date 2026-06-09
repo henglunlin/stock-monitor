@@ -57,7 +57,7 @@ def load_stock_groups():
     return DEFAULT_STOCK_GROUPS
 
 
-# ===== 參考 app2026-0608.py 的穩健讀檔邏輯 =====
+# ===== 修正 1：強化查表邏輯，剔除後綴干擾 =====
 def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     name_map = {}
 
@@ -68,28 +68,18 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             for raw_line in f:
-                line = raw_line.strip()
+                # 清理不可見字元與全形空白
+                line = raw_line.strip().replace("\ufeff", "").replace("\u3000", " ")
                 if not line:
                     continue
 
-                line = line.replace("\ufeff", "").replace("\u3000", "")
-
-                # 優先處理 Tab 分隔
-                if "\t" in line:
-                    parts = line.split("\t")
-                    parts = [p.strip() for p in parts if p.strip()]
-                    if len(parts) >= 2:
-                        symbol = parts[0].upper()
-                        name = parts[1].strip()
-                        name_map[symbol] = name
-                        continue
-
-                # 再處理一般空白分隔
-                m = re.match(r"^([^\s]+)\s+(.+)$", line)
-                if m:
-                    symbol = m.group(1).strip().upper()
-                    name = m.group(2).strip()
-                    name_map[symbol] = name
+                # 統一使用 split() 自動切割所有空白與 Tab
+                parts = line.split()
+                if len(parts) >= 2:
+                    # 關鍵修正：強制把 .TW 或 .TWO 切掉，只留下純代碼作為字典的 Key (例如 2330)
+                    base_symbol = parts[0].upper().split('.')[0]
+                    name = parts[1].strip()
+                    name_map[base_symbol] = name
 
         print(f"✅ 成功載入 {len(name_map)} 筆股票名稱對照。")
 
@@ -99,12 +89,12 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     return name_map
 
 
-# ===== 批次版為求穩定：只查本地名稱表，查不到就回代碼，不再打 get_info() =====
 def get_stock_name(symbol: str, name_map: dict) -> str:
-    symbol = symbol.upper()
-    if symbol in name_map:
-        return name_map[symbol]
-    return symbol.split(".")[0]
+    # 關鍵修正：查詢時也把傳進來的 .TW 拿掉，確保一定能跟字典 Key 對上
+    base_symbol = symbol.split('.')[0].upper()
+    if base_symbol in name_map:
+        return name_map[base_symbol]
+    return base_symbol
 
 
 def download_stock_data(symbol):
@@ -250,7 +240,10 @@ def main():
                 has_gap_signal = data["gap_signal"] == "跳空"
 
                 if is_high_gain and (has_kd_signal or has_gap_signal):
-                    yahoo_url = f"https://tw.stock.yahoo.com/quote/{symbol}"
+                    # ===== 修正 2：Yahoo 股市網址優化 =====
+                    # Yahoo 台灣股市的網址通常不帶後綴，使用純數字（如 /quote/2330）能確保網頁正常解析
+                    base_symbol = symbol.split('.')[0]
+                    yahoo_url = f"https://tw.stock.yahoo.com/quote/{base_symbol}"
                     symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
 
                     msg = (
