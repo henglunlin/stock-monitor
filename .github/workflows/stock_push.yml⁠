@@ -1,26 +1,29 @@
 name: Stock Monitor Scheduled Push
-
 on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
-
+ schedule:
+   # 1. 台灣時間 09:40 (UTC 01:40)
+   - cron: '*/5 * * * *'
+   # 2. 台灣時間 10:00, 11:00, 12:00, 13:00 (UTC 02:00, 03:00, 04:00, 05:00)
+   - cron: '0 2-5 * * *'
+ # 保留手動觸發功能，方便您測試
+ workflow_dispatch:
 jobs:
-  push_notification:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-      - name: Run Stock Monitor Script
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python3 push_task.py
+ push_notification:
+   runs-on: ubuntu-latest
+   steps:
+   - name: Checkout repository
+     uses: actions/checkout@v4
+   - name: Set up Python
+     uses: actions/setup-python@v5
+     with:
+       python-version: '3.10' # 請根據您的程式語言調整，這裡以 Python 為例
+   - name: Install dependencies
+     run: |
+       pip install -r requirements.txt # 如果有需要安裝的套件
+   - name: Run Stock Monitor Script
+     env:
+       # 建議將 Telegram 的 Token 等敏感資訊放到 GitHub Secrets 中
+       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+     run: |
+       python3 push_task.py
