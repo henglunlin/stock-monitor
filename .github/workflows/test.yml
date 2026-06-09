@@ -36,14 +36,14 @@ jobs:
             echo "skip"
           fi
 
-      - name: Wait 5 minutes
+      - name: Wait 40 seconds (for testing)
         run: sleep 40
 
-      # ✅ 修正這裡（關鍵）
+      # ✅ 用 GH_PAT 觸發下一次（關鍵修復）
       - name: Trigger next run
         run: |
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow }}/dispatches \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/stock_push.yml/dispatches \
             -d '{"ref":"main"}'
