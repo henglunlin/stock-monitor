@@ -1,29 +1,47 @@
-name: Stock Monitor Scheduled Push
+name: Stock Monitor Stable Runner
+
 on:
- schedule:
-   # 1. 台灣時間 09:40 (UTC 01:40)
-   - cron: '*/5 * * * *'
-   # 2. 台灣時間 10:00, 11:00, 12:00, 13:00 (UTC 02:00, 03:00, 04:00, 05:00)
-   - cron: '0 2-5 * * *'
- # 保留手動觸發功能，方便您測試
- workflow_dispatch:
+  push:
+  workflow_dispatch:
+
 jobs:
- push_notification:
-   runs-on: ubuntu-latest
-   steps:
-   - name: Checkout repository
-     uses: actions/checkout@v4
-   - name: Set up Python
-     uses: actions/setup-python@v5
-     with:
-       python-version: '3.10' # 請根據您的程式語言調整，這裡以 Python 為例
-   - name: Install dependencies
-     run: |
-       pip install -r requirements.txt # 如果有需要安裝的套件
-   - name: Run Stock Monitor Script
-     env:
-       # 建議將 Telegram 的 Token 等敏感資訊放到 GitHub Secrets 中
-       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-     run: |
-       python3 push_task.py
+  run-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Run your script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          echo "===== Start ====="
+          date
+          python3 push_task.py
+          echo "===== End ====="
+
+      # 🔥 核心：自己觸發自己（穩定運行）
+      - name: Wait 5 minutes
+        run: sleep 300
+
+      - name: Trigger next run
+        run: |
+          echo "$(date)" > trigger.txt
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add trigger.txt
+          git commit -m "auto trigger" || echo "no changes"
+          git push
