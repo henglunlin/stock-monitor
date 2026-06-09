@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import time
 import requests
@@ -13,7 +12,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 GROUPS_FILE = "stock_groups.json"
-STOCK_NAME_FILE = "TWstocklistname.txt" # 新增：股票名稱對照檔
+STOCK_NAME_FILE = "TWstocklistname.txt"
 ENABLE_GAP_SIGNAL = True
 
 DEFAULT_STOCK_GROUPS = {
@@ -30,7 +29,7 @@ def send_telegram_message(text: str):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True # 建議加上這個，避免 Telegram 預覽 Yahoo 網頁佔用太大版面
+        "disable_web_page_preview": True 
     }
     try:
         res = requests.post(url, json=payload, timeout=10)
@@ -52,33 +51,31 @@ def load_stock_groups():
             print(f"讀取 {GROUPS_FILE} 失敗: {e}")
     return DEFAULT_STOCK_GROUPS
 
-# 新增：載入本地股票名稱清單
+# [優化] 更強健的讀檔邏輯，並加入提示
 def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     name_map = {}
     if not os.path.exists(file_path):
+        print(f"⚠️ 找不到股票名稱檔案：{file_path}，請確認是否已上傳至 GitHub！將使用預設名稱。")
         return name_map
-    with open(file_path, "r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            line = line.replace("\ufeff", "").replace("\u3000", "")
-            if "\t" in line:
-                parts = line.split("\t")
-                parts = [p.strip() for p in parts if p.strip()]
+        
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                # split() 不帶參數會自動切開所有的空格或 Tab
+                parts = line.split()
                 if len(parts) >= 2:
                     symbol = parts[0].upper()
-                    name = parts[1].strip()
+                    name = parts[1]
                     name_map[symbol] = name
-                    continue
-            m = re.match(r"^([^\s]+)\s+(.+)$", line)
-            if m:
-                symbol = m.group(1).strip().upper()
-                name = m.group(2).strip()
-                name_map[symbol] = name
+        print(f"✅ 成功載入 {len(name_map)} 筆股票名稱對照。")
+    except Exception as e:
+        print(f"⚠️ 讀取股票名稱檔發生錯誤: {e}")
+        
     return name_map
 
-# 修改：加入 name_map 參數，優先從本地檔案查找中文名稱
 def get_stock_name(symbol: str, name_map: dict) -> str:
     if symbol in name_map:
         return name_map[symbol]
@@ -175,7 +172,7 @@ def main():
     print(f"🕒 開始執行定時掃描... 台灣時間: {tw_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     stock_groups = load_stock_groups()
-    name_map = load_stock_name_map() # 只在迴圈外讀取一次檔案，提升效能
+    name_map = load_stock_name_map() 
     total_scanned = 0
     hit_messages = []
 
@@ -189,7 +186,7 @@ def main():
                     continue
 
                 price = get_last_price(symbol, df)
-                stock_name = get_stock_name(symbol, name_map) # 傳入 name_map 進行比對
+                stock_name = get_stock_name(symbol, name_map) 
                 data = compute_indicators(df, price)
 
                 is_high_gain = data["pct"] >= 1
@@ -197,9 +194,10 @@ def main():
                 has_gap_signal = data["gap_signal"] == "跳空"
                 
                 if is_high_gain and (has_kd_signal or has_gap_signal):
-                    # 建立 Yahoo 股市超連結，支援 Telegram 的 HTML 格式
+                    
+                    # [修正] 確保 HTML 標籤使用雙引號，Telegram 才能正確解析為超連結
                     yahoo_url = f"https://tw.stock.yahoo.com/quote/{symbol}"
-                    symbol_link = f"<a href='{yahoo_url}'>{symbol}</a>"
+                    symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
                     
                     msg = (
                         f"🔔 <b>強勢股達標通知：{stock_name} ({symbol_link})</b>\n\n"
