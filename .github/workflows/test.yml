@@ -45,5 +45,4 @@ jobs:
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/stock_push.yml/dispatches \
-            -d '{"ref":"main"}'
+           https://api.github.com/repos/${{ github.repository }}/actions/workflows/test.yml/dispatches
