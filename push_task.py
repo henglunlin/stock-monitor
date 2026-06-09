@@ -57,35 +57,49 @@ def load_stock_groups():
     return DEFAULT_STOCK_GROUPS
 
 
-# ===== 強化查表邏輯，剔除後綴干擾 =====
+# ===== 強化查表邏輯，剔除後綴干擾與自動處理編碼/路徑 =====
 def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     name_map = {}
 
-    if not os.path.exists(file_path):
-        print(f"⚠️ 找不到股票名稱檔案：{file_path}，將只顯示股票代碼。")
+    # 確保使用絕對路徑，避免終端機執行目錄不同導致找不到檔案
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, file_path)
+
+    if not os.path.exists(full_path):
+        print(f"⚠️ 找不到股票名稱檔案：{full_path}，將只顯示股票代碼。")
         return name_map
 
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            for raw_line in f:
-                # 清理不可見字元與全形空白
-                line = raw_line.strip().replace("\ufeff", "").replace("\u3000", " ")
-                if not line:
-                    continue
+    # 加入多種台灣常見編碼，先嘗試 UTF-8，失敗則退回 Windows 預設的 cp950/Big5
+    encodings = ["utf-8-sig", "utf-8", "cp950", "big5"]
+    
+    for enc in encodings:
+        try:
+            with open(full_path, "r", encoding=enc) as f:
+                for raw_line in f:
+                    # 清理不可見字元與全形空白
+                    line = raw_line.strip().replace("\ufeff", "").replace("\u3000", " ")
+                    if not line:
+                        continue
 
-                # 統一使用 split() 自動切割所有空白與 Tab
-                parts = line.split()
-                if len(parts) >= 2:
-                    # 強制把 .TW 或 .TWO 切掉，只留下純代碼作為字典的 Key (例如 2330)
-                    base_symbol = parts[0].upper().split('.')[0]
-                    name = parts[1].strip()
-                    name_map[base_symbol] = name
+                    # 統一使用 split() 自動切割所有空白與 Tab
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        # 強制把 .TW 或 .TWO 切掉，只留下純代碼作為字典的 Key (例如 2330)
+                        base_symbol = parts[0].upper().split('.')[0]
+                        name = parts[1].strip()
+                        name_map[base_symbol] = name
+            
+            print(f"✅ 成功以 {enc} 編碼載入 {len(name_map)} 筆股票名稱對照。")
+            return name_map  # 只要有一種編碼成功讀取，就提早結束函式
 
-        print(f"✅ 成功載入 {len(name_map)} 筆股票名稱對照。")
+        except UnicodeDecodeError:
+            # 如果發生編碼錯誤，什麼都不做，讓迴圈嘗試下一個編碼
+            continue
+        except Exception as e:
+            print(f"⚠️ 讀取股票名稱檔發生其他錯誤: {e}")
+            return name_map
 
-    except Exception as e:
-        print(f"⚠️ 讀取股票名稱檔發生錯誤: {e}")
-
+    print("❌ 所有編碼格式皆無法讀取該檔案，請打開 TXT 檔案確認內容是否正常。")
     return name_map
 
 
