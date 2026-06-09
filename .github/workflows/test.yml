@@ -30,19 +30,24 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           HOUR=$(date -u +%H)
+
           if [ "$HOUR" -ge 1 ] && [ "$HOUR" -le 5 ]; then
+            echo "✅ in trading time"
             python3 push_task.py
           else
-            echo "skip"
+            echo "⏰ skip"
           fi
 
       - name: Wait 40 seconds (for testing)
         run: sleep 40
 
-      # ✅ 用 GH_PAT 觸發下一次（關鍵修復）
+      # ✅ 最重要：正確 API + GH_PAT + ref
       - name: Trigger next run
         run: |
+          echo "Trigger next run..."
+
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-           https://api.github.com/repos/${{ github.repository }}/actions/workflows/test.yml/dispatches
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/test.yml/dispatches \
+            -d '{"ref":"main"}'
