@@ -57,12 +57,12 @@ def load_stock_groups():
     return DEFAULT_STOCK_GROUPS
 
 
-# ===== 依 app2026-0608.py 邏輯修正：更穩健的股票名稱讀檔 =====
+# ===== 參考 app2026-0608.py 的穩健讀檔邏輯 =====
 def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     name_map = {}
 
     if not os.path.exists(file_path):
-        print(f"⚠️ 找不到股票名稱檔案：{file_path}，將使用預設名稱。")
+        print(f"⚠️ 找不到股票名稱檔案：{file_path}，將只顯示股票代碼。")
         return name_map
 
     try:
@@ -72,10 +72,9 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
                 if not line:
                     continue
 
-                # 參考 app 的容錯處理：移除 BOM 與全形空白
                 line = line.replace("\ufeff", "").replace("\u3000", "")
 
-                # 先處理 Tab 分隔格式
+                # 優先處理 Tab 分隔
                 if "\t" in line:
                     parts = line.split("\t")
                     parts = [p.strip() for p in parts if p.strip()]
@@ -85,7 +84,7 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
                         name_map[symbol] = name
                         continue
 
-                # 再處理一般空白分隔格式
+                # 再處理一般空白分隔
                 m = re.match(r"^([^\s]+)\s+(.+)$", line)
                 if m:
                     symbol = m.group(1).strip().upper()
@@ -100,31 +99,11 @@ def load_stock_name_map(file_path: str = STOCK_NAME_FILE) -> dict:
     return name_map
 
 
-# ===== 依 app2026-0608.py 邏輯修正：先查 txt，查不到再 fallback yfinance =====
+# ===== 批次版為求穩定：只查本地名稱表，查不到就回代碼，不再打 get_info() =====
 def get_stock_name(symbol: str, name_map: dict) -> str:
     symbol = symbol.upper()
-
     if symbol in name_map:
         return name_map[symbol]
-
-    try:
-        ticker = yf.Ticker(symbol)
-        info = {}
-        try:
-            info = ticker.get_info()
-        except Exception:
-            try:
-                info = ticker.info
-            except Exception:
-                info = {}
-
-        for key in ["shortName", "longName", "displayName", "name"]:
-            val = info.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-    except Exception:
-        pass
-
     return symbol.split(".")[0]
 
 
@@ -294,7 +273,7 @@ def main():
         print(f"📨 準備發送 {len(hit_messages)} 則達標通知...")
         for msg in hit_messages:
             send_telegram_message(msg)
-            time.sleep(1)  # 避免觸發 Telegram 發送頻率限制
+            time.sleep(1)
     else:
         print("🤷‍♂️ 目前無股票達標。")
 
