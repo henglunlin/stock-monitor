@@ -791,7 +791,7 @@ if st.session_state.tg_push_enabled:
             tw_now.replace(hour=10, minute=0, second=0, microsecond=0),
             tw_now.replace(hour=11, minute=0, second=0, microsecond=0),
             tw_now.replace(hour=12, minute=0, second=0, microsecond=0),
-            tw_now.replace(hour=21, minute=34, second=0, microsecond=0)
+            tw_now.replace(hour=21, minute=44, second=0, microsecond=0)
         ]
 
         for target_dt in TARGET_TIMES:
@@ -837,7 +837,7 @@ for group_name, stocks in st.session_state.stock_groups.items():
             has_kd_signal = data["kd_signal"] in ["黃金交叉", "即將黃金交叉"]
             has_gap_signal = data["gap_signal"] == "跳空"
             
-            if is_high_gain or (has_kd_signal or has_gap_signal):
+            if is_high_gain and (has_kd_signal or has_gap_signal):
                 base_symbol = symbol.split('.')[0]
                 yahoo_url = f"https://tw.stock.yahoo.com/quote/{base_symbol}"
                 symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
