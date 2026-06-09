@@ -3,9 +3,9 @@ name: Execute Push Task
 on:
   schedule:
     # 每天台灣時間 20:30 (UTC 12:30) 執行
-    - cron: '30 12 * * *'
+    - cron: '46 12 * * *'
     # 每天台灣時間 21:00 (UTC 13:00) 執行
-    - cron: '0 13 * * *'
+    - cron: '53 12 * * *'
   
   # 允許在 GitHub 網頁上手動點擊執行
   workflow_dispatch: 
