@@ -37,7 +37,7 @@ jobs:
           fi
 
       - name: Wait 5 minutes
-        run: sleep 30
+        run: sleep 40
 
       # ✅ 修正這裡（關鍵）
       - name: Trigger next run
