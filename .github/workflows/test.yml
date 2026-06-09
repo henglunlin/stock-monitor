@@ -1,19 +1,20 @@
 name: Stock Monitor Stable Runner
 
 on:
-  push:
   workflow_dispatch:
+  push:
+
+permissions:
+  contents: write
 
 jobs:
   run-job:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -23,25 +24,26 @@ jobs:
             pip install -r requirements.txt
           fi
 
-      - name: Run your script
+      - name: Run script (time control)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          echo "===== Start ====="
-          date
-          python3 push_task.py
-          echo "===== End ====="
+          HOUR=$(date -u +%H)
+          if [ "$HOUR" -ge 1 ] && [ "$HOUR" -le 5 ]; then
+            python3 push_task.py
+          else
+            echo "skip"
+          fi
 
-      # 🔥 核心：自己觸發自己（穩定運行）
       - name: Wait 5 minutes
         run: sleep 300
 
+      # ✅ 修正這裡（關鍵）
       - name: Trigger next run
         run: |
-          echo "$(date)" > trigger.txt
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git add trigger.txt
-          git commit -m "auto trigger" || echo "no changes"
-          git push
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow }}/dispatches \
+            -d '{"ref":"main"}'
