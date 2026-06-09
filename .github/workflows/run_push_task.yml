@@ -1,4 +1,4 @@
-name: Stock Monitor Scheduled Push
+name: Execute Push Task
 
 on:
   schedule:
@@ -7,7 +7,7 @@ on:
     # 每天台灣時間 21:00 (UTC 13:00) 執行
     - cron: '0 13 * * *'
   
-  # 加入 workflow_dispatch 讓你可以隨時在 GitHub 網頁上手動點擊執行，方便測試
+  # 允許在 GitHub 網頁上手動點擊執行
   workflow_dispatch: 
 
 jobs:
@@ -23,15 +23,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # 你可以依據你的開發環境調整版本 (例如 '3.9' 或 '3.11')
+          python-version: '3.10'
 
-      # 3. 安裝必要的套件 (如果 push_task.py 有使用外部套件)
+      # 3. 安裝必要的套件
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 如果你有 requirements.txt，請把下面這行的註解拿掉：
           pip install -r requirements.txt
 
-      # 4. 執行你的 Python 腳本
-      - name: Run push_task.py
+      # 4. 執行腳本並帶入 Telegram 權限金鑰
+      - name: Execute script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python push_task.py
