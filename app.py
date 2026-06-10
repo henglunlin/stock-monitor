@@ -798,8 +798,8 @@ if st.session_state.tg_push_enabled:
             # 計算當下時間與目標時間的差距（秒）
             diff_seconds = (tw_now - target_dt).total_seconds()
             
-            # 若時間差距在正負 50 秒以內
-            if abs(diff_seconds) <= 50:
+            # 若時間差距在正負 60 秒以內
+            if abs(diff_seconds) <= 60:
                 # 產生唯一的排程 Key，例如 slot_20260609_0940
                 time_str = target_dt.strftime("%H%M")
                 today_str = tw_now.strftime("%Y%m%d")
