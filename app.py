@@ -787,7 +787,7 @@ if st.session_state.tg_push_enabled:
     elif st.session_state.scheduled_push_enabled:
         # 定義每天的目標發送時間
         TARGET_TIMES = [
-            tw_now.replace(hour=13, minute=40, second=0, microsecond=0),
+            tw_now.replace(hour=13, minute=50, second=0, microsecond=0),
             tw_now.replace(hour=10, minute=0, second=0, microsecond=0),
             tw_now.replace(hour=11, minute=0, second=0, microsecond=0),
             tw_now.replace(hour=12, minute=0, second=0, microsecond=0),
@@ -799,7 +799,7 @@ if st.session_state.tg_push_enabled:
             diff_seconds = (tw_now - target_dt).total_seconds()
             
             # 若時間差距在正負 60 秒以內
-            if abs(diff_seconds) <= 60:
+            if abs(diff_seconds) <= 45:
                 # 產生唯一的排程 Key，例如 slot_20260609_0940
                 time_str = target_dt.strftime("%H%M")
                 today_str = tw_now.strftime("%Y%m%d")
