@@ -25,8 +25,8 @@ BACKUP_DIR = "backups"
 STOCK_NAME_FILE = "TWstocklistname.txt"
 
 # ===== Telegram 設定（請替換為你的資訊）=====
-TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]  
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")  
 
 DEFAULT_STOCK_GROUPS = {
     "權值股": [
@@ -728,6 +728,45 @@ def render_summary_dashboard(group_up_summary, rise_threshold):
     html_parts.append("</div></div>")
     st.markdown("".join(html_parts), unsafe_allow_html=True)
 
+
+# ==================== 新增：將最耗時的運算批次快取 ====================
+@st.cache_data(ttl=REFRESH_SEC, show_spinner=False)
+def fetch_all_group_data(groups_dict):
+    """
+    此函數將所有股票抓取與計算包裝起來，統一快取。
+    這樣拖動滑桿時，只會從記憶體讀取已經算好的資料，瞬間完成重新渲染，不會觸發網路請求。
+    """
+    results = {}
+    for group_name, stocks in groups_dict.items():
+        stock_results = []
+        for symbol in stocks:
+            try:
+                raw_df = download_stock_data(symbol)
+                df = normalize_ohlc(raw_df)
+                if df.empty: raise ValueError("無法解析 yfinance 欄位格式")
+
+                price = get_last_price(symbol, df)
+                stock_name = get_stock_name(symbol)
+                data = compute_indicators(df, price)
+                
+                stock_results.append({
+                    "symbol": symbol,
+                    "stock_name": stock_name,
+                    "data": data,
+                    "error": None
+                })
+            except Exception as e:
+                stock_results.append({
+                    "symbol": symbol,
+                    "stock_name": get_stock_name(symbol),
+                    "data": None,
+                    "error": str(e)
+                })
+        results[group_name] = stock_results
+    return results
+# =========================================================================
+
+
 # ==================== 主畫面開始 ====================
 st.title("📊 股票監控面板 - 告訴我你會買日月光")
 st.markdown('<div id="dashboard-top"></div>', unsafe_allow_html=True)
@@ -736,7 +775,7 @@ col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 
 with col1:
     if st.button("🔄 手動更新即時資料 (清除快取)", use_container_width=True):
-        st.cache_data.clear()
+        st.cache_data.clear() # 清除包含 fetch_all_group_data 在內的所有快取，強制重抓
         st.rerun()
 
 with col2:
@@ -816,67 +855,68 @@ if st.session_state.tg_push_enabled:
 group_tables = {}
 group_up_summary = []
 
-for group_name, stocks in st.session_state.stock_groups.items():
+# 取得已快取的所有股票處理後資料 (拖拉滑桿瞬間讀取，不觸發更新)
+all_stocks_data = fetch_all_group_data(st.session_state.stock_groups)
+
+for group_name, stocks_info in all_stocks_data.items():
     rows = []
     hit_count = up_count = down_count = flat_count = error_count = 0
     valid_stock_stats = []
     hit_names = []
 
-    for symbol in stocks:
-        try:
-            raw_df = download_stock_data(symbol)
-            df = normalize_ohlc(raw_df)
-            if df.empty: raise ValueError("無法解析 yfinance 欄位格式")
-
-            price = get_last_price(symbol, df)
-            stock_name = get_stock_name(symbol)
-            data = compute_indicators(df, price)
-
-            # ===== 執行推播檢查 =====
-            is_high_gain = data["pct"] >= 5
-            has_kd_signal = data["kd_signal"] in ["黃金交叉", "即將黃金交叉"]
-            has_gap_signal = data["gap_signal"] == "跳空"
-            
-            if is_high_gain or (has_kd_signal or has_gap_signal):
-                base_symbol = symbol.split('.')[0]
-                yahoo_url = f"https://tw.stock.yahoo.com/quote/{base_symbol}"
-                symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
-                today_str = tw_now.strftime("%Y-%m-%d")
-                notify_key = f"{symbol}_{today_str}"
-                
-                if can_push_now and (notify_key not in st.session_state.notified_stocks):
-                    msg = (
-                        f"🔔 <b>強勢股達標通知：{stock_name} ({symbol_link})</b>\n\n"
-                        f"📈 價格：{data['price']}\n"
-                        f"🔥 漲幅：+{data['pct']}%\n"
-                        f"📊 KD訊號：{data['kd_signal']}\n"
-                        f"🚀 跳空訊號：{data['gap_signal']}"
-                    )
-                    send_telegram_message(msg)
-                    st.session_state.notified_stocks.add(notify_key)
-            # =======================
-
-            if data["pct"] >= rise_threshold:
-                hit_count += 1
-                hit_names.append(stock_name)
-            if data["pct"] > 0: up_count += 1
-            elif data["pct"] < 0: down_count += 1
-            else: flat_count += 1
-
-            valid_stock_stats.append({"symbol": symbol, "code": symbol_to_code(symbol), "name": stock_name, "pct": float(data["pct"])})
-            rows.append({
-                "代碼": symbol, "代碼網址": yahoo_quote_url(symbol), "股票名稱": stock_name,
-                "價格": f"{data['price']:.2f}", "漲跌%": data["pct"], "MA位置": data["ma_range"],
-                "MA排列": data["ma_trend"], "K值": data["k"], "D值": f"{data['d']:.1f}",
-                "KD訊號": data["kd_signal"], "跳空訊號": data["gap_signal"]
-            })
-        except Exception as e:
+    for item in stocks_info:
+        symbol = item["symbol"]
+        stock_name = item["stock_name"]
+        
+        if item["error"]:
             error_count += 1
             rows.append({
-                "代碼": symbol, "代碼網址": "", "股票名稱": get_stock_name(symbol),
+                "代碼": symbol, "代碼網址": "", "股票名稱": stock_name,
                 "價格": "錯誤", "漲跌%": "-", "MA位置": "-", "MA排列": "-",
-                "K值": "-", "D值": "-", "KD訊號": "-", "跳空訊號": str(e)
+                "K值": "-", "D值": "-", "KD訊號": "-", "跳空訊號": item["error"]
             })
+            continue
+
+        data = item["data"]
+
+        # ===== 執行推播檢查 =====
+        is_high_gain = data["pct"] >= 5
+        has_kd_signal = data["kd_signal"] in ["黃金交叉", "即將黃金交叉"]
+        has_gap_signal = data["gap_signal"] == "跳空"
+        
+        if is_high_gain or (has_kd_signal or has_gap_signal):
+            base_symbol = symbol.split('.')[0]
+            yahoo_url = f"https://tw.stock.yahoo.com/quote/{base_symbol}"
+            symbol_link = f'<a href="{yahoo_url}">{symbol}</a>'
+            today_str = tw_now.strftime("%Y-%m-%d")
+            notify_key = f"{symbol}_{today_str}"
+            
+            if can_push_now and (notify_key not in st.session_state.notified_stocks):
+                msg = (
+                    f"🔔 <b>強勢股達標通知：{stock_name} ({symbol_link})</b>\n\n"
+                    f"📈 價格：{data['price']}\n"
+                    f"🔥 漲幅：+{data['pct']}%\n"
+                    f"📊 KD訊號：{data['kd_signal']}\n"
+                    f"🚀 跳空訊號：{data['gap_signal']}"
+                )
+                send_telegram_message(msg)
+                st.session_state.notified_stocks.add(notify_key)
+        # =======================
+
+        if data["pct"] >= rise_threshold:
+            hit_count += 1
+            hit_names.append(stock_name)
+        if data["pct"] > 0: up_count += 1
+        elif data["pct"] < 0: down_count += 1
+        else: flat_count += 1
+
+        valid_stock_stats.append({"symbol": symbol, "code": symbol_to_code(symbol), "name": stock_name, "pct": float(data["pct"])})
+        rows.append({
+            "代碼": symbol, "代碼網址": yahoo_quote_url(symbol), "股票名稱": stock_name,
+            "價格": f"{data['price']:.2f}", "漲跌%": data["pct"], "MA位置": data["ma_range"],
+            "MA排列": data["ma_trend"], "K值": data["k"], "D值": f"{data['d']:.1f}",
+            "KD訊號": data["kd_signal"], "跳空訊號": data["gap_signal"]
+        })
 
     hit_names_text = compact_name_list(hit_names, max_show=4)
     top3_html = build_top3_html(valid_stock_stats)
@@ -886,11 +926,11 @@ for group_name, stocks in st.session_state.stock_groups.items():
         display_df["漲跌%"] = display_df["漲跌%"].apply(format_color)
         display_df["K值"] = display_df["K值"].apply(format_k)
         display_df["跳空訊號"] = display_df["跳空訊號"].apply(format_gap)
-    group_tables[group_name] = {"count": len(stocks), "table": display_df}
+    group_tables[group_name] = {"count": len(stocks_info), "table": display_df}
     group_up_summary.append({
         "分類": group_name, "達標數": hit_count, "達標股票名稱": hit_names_text,
         "前三名HTML": top3_html, "上漲數": up_count, "下跌數": down_count,
-        "平盤數": flat_count, "錯誤數": error_count, "總數": len(stocks)
+        "平盤數": flat_count, "錯誤數": error_count, "總數": len(stocks_info)
     })
 
 if can_push_now and st.session_state.scheduled_push_enabled and current_schedule_key and not manual_push_triggered:
